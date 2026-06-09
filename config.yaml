@@ -165,6 +165,16 @@ target_companies:
     linkedin_id: 2029
   - name: Porter
     linkedin_id: 71697
+  - name: Razorpay
+    linkedin_id: 3788927
+  - name: Slice
+    linkedin_id: 3945451
+  - name: LinkedIn
+    linkedin_id: 1337
+  - name: Fidelity Investments
+    linkedin_id: 1307
+  - name: Cisco
+    linkedin_id: 1063
 
 # Bot behaviour
 settings:

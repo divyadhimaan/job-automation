@@ -2,7 +2,6 @@
 Flask portal for the LinkedIn Job Automation dashboard.
 Run with: python portal/app.py
 """
-import os
 import sys
 from pathlib import Path
 
@@ -75,10 +74,6 @@ def api_update_status(job_id):
 
 
 if __name__ == "__main__":
-    from dotenv import load_dotenv
-    load_dotenv()
     init_db()
-    port = int(os.environ.get("PORT", 5000))
-    debug = os.environ.get("FLASK_ENV") != "production"
-    print(f"\n🚀  Portal running at http://127.0.0.1:{port}\n")
-    app.run(debug=debug, host="0.0.0.0", port=port)
+    print("\n🚀  Portal running at http://127.0.0.1:5000\n")
+    app.run(debug=True, port=5000)

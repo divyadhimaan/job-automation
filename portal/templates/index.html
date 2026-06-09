@@ -118,6 +118,15 @@
     .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
     .modal-actions .btn { padding: 8px 18px; font-size: 13px; }
 
+    /* ── Pagination ── */
+    .pagination { display: flex; align-items: center; gap: 6px; padding: 12px 14px; background: var(--surface); border-top: 1px solid var(--border); flex-wrap: wrap; }
+    .pagination-info { font-size: 12px; color: var(--text-dim); margin-right: auto; }
+    .pg-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--text-dim); padding: 5px 10px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; min-width: 32px; text-align: center; transition: all .15s; }
+    .pg-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+    .pg-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .pg-btn:disabled { opacity: .35; cursor: default; }
+    .pg-ellipsis { color: var(--muted); font-size: 12px; padding: 0 4px; }
+
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
@@ -233,11 +242,12 @@
 
 <script>
   // ── State ─────────────────────────────────────────────────────────────────
-  let currentPage = 'all';
-  // jobCache[status] = array of job objects (used for CSV export & re-sort)
-  const jobCache = {};
-  // sort state per table: { col: 'date'|'title'|'company'|'status', dir: 'asc'|'desc' }
-  const sortState = {};
+  const PAGE_SIZE   = 25;
+  let currentPage   = 'all';
+  const jobCache    = {};   // containerId → full job array
+  const sortState   = {};   // containerId → { col, dir }
+  const searchState = {};   // containerId → query string
+  const pageState   = {};   // containerId → current page index (0-based)
 
   // ── Navigation ─────────────────────────────────────────────────────────────
   function showPage(name, event) {
@@ -248,7 +258,6 @@
     currentPage = name;
     loadPage(name);
   }
-
   function loadPage(name) {
     ({ all: loadAll, needs_manual: loadNeeds, applied: loadApplied,
        manually_applied: loadManually, failed: loadFailed, skipped: loadSkipped })[name]?.();
@@ -264,10 +273,95 @@
     document.getElementById('badge-total').textContent = s.total || 0;
   }
 
-  // ── Sortable table renderer ────────────────────────────────────────────────
-  const COLS = ['title', 'company', 'location', 'status', 'date'];
+  // ── Core render ───────────────────────────────────────────────────────────
+  // Single source of truth: reads jobCache/sortState/searchState/pageState
+  function _render(containerId) {
+    const container = document.getElementById(containerId);
+    const jobs  = jobCache[containerId] || [];
+    const state = sortState[containerId] || { col: 'date', dir: 'desc' };
+    const q     = (searchState[containerId] || '').toLowerCase().trim();
 
-  function sortJobs(jobs, col, dir) {
+    // 1. Sort
+    const sorted = _sortJobs(jobs, state.col, state.dir);
+    // 2. Filter
+    const filtered = q ? sorted.filter(j => (j.title + ' ' + j.company).toLowerCase().includes(q)) : sorted;
+    // 3. Paginate
+    const total      = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const pg         = Math.min(pageState[containerId] || 0, totalPages - 1);
+    pageState[containerId] = pg;
+    const slice      = filtered.slice(pg * PAGE_SIZE, (pg + 1) * PAGE_SIZE);
+
+    if (!filtered.length) {
+      container.innerHTML = `<div class="empty"><div class="empty-icon">📭</div>${q ? 'No results for "'+escHtml(q)+'".' : 'No jobs here yet.'}</div>`;
+      return;
+    }
+
+    const thClass = col => 'sortable' + (state.col === col ? ' sort-' + state.dir : '');
+
+    const rows = slice.map(j => {
+      const dateVal     = j.applied_at || j.created_at || '';
+      const dateDisplay = dateVal ? new Date(dateVal).toLocaleDateString('en-IN', {day:'numeric',month:'short',year:'2-digit'}) : '—';
+      const linkedinLink  = j.linkedin_url  ? `<a href="${j.linkedin_url}"  target="_blank" style="font-size:11px;color:var(--text-dim)">LinkedIn ↗</a>` : '';
+      const externalLink  = j.external_url  ? `<a href="${j.external_url}" target="_blank" class="btn btn-yellow" style="margin-right:6px">Apply Now ↗</a>` : '';
+      const markDoneBtn   = j.status === 'needs_manual' ? `<button class="btn btn-green" onclick="quickMarkDone('${j.id}',event)">Mark Done</button>` : '';
+      const editBtn       = `<button class="btn btn-muted" onclick="openModal('${j.id}','${escHtml(j.title)} @ ${escHtml(j.company)}','${j.status}')">Edit</button>`;
+      return `<tr>
+        <td class="td-title">${escHtml(j.title)}<br><span style="font-size:11px;color:var(--text-dim)">${linkedinLink}</span></td>
+        <td class="td-company">${escHtml(j.company)}</td>
+        <td style="font-size:12px;color:var(--text-dim)">${escHtml(j.location||'')}</td>
+        <td><span class="badge badge-${j.status}">${j.status.replace(/_/g,' ')}</span></td>
+        <td style="font-size:12px;color:var(--text-dim);white-space:nowrap">${dateDisplay}</td>
+        <td class="td-actions">${externalLink}${markDoneBtn} ${editBtn}</td>
+      </tr>`;
+    }).join('');
+
+    const start = pg * PAGE_SIZE + 1;
+    const end   = Math.min((pg + 1) * PAGE_SIZE, total);
+    const paginationHtml = _buildPagination(containerId, pg, totalPages, start, end, total);
+
+    container.innerHTML = `<div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th class="${thClass('title')}"  onclick="onSort('${containerId}','title')">Job Title<i class="sort-icon"></i></th>
+          <th class="${thClass('company')}" onclick="onSort('${containerId}','company')">Company<i class="sort-icon"></i></th>
+          <th class="${thClass('location')}" onclick="onSort('${containerId}','location')">Location<i class="sort-icon"></i></th>
+          <th class="${thClass('status')}"  onclick="onSort('${containerId}','status')">Status<i class="sort-icon"></i></th>
+          <th class="${thClass('date')}"    onclick="onSort('${containerId}','date')">Date<i class="sort-icon"></i></th>
+          <th>Actions</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${paginationHtml}
+    </div>`;
+  }
+
+  function _buildPagination(containerId, pg, totalPages, start, end, total) {
+    if (totalPages <= 1) return '';
+    const btn = (i, label, disabled, active) =>
+      `<button class="pg-btn${active?' active':''}" ${disabled?'disabled':''} onclick="goToPage('${containerId}',${i})">${label}</button>`;
+
+    // Build page number list with ellipsis
+    const pages = [];
+    for (let i = 0; i < totalPages; i++) {
+      if (i === 0 || i === totalPages-1 || (i >= pg-1 && i <= pg+1)) pages.push(i);
+      else if (pages[pages.length-1] !== '…') pages.push('…');
+    }
+
+    const pageButtons = pages.map(i =>
+      i === '…' ? `<span class="pg-ellipsis">…</span>` : btn(i, i+1, false, i===pg)
+    ).join('');
+
+    return `<div class="pagination">
+      <span class="pagination-info">Showing ${start}–${end} of ${total}</span>
+      ${btn(pg-1, '← Prev', pg===0, false)}
+      ${pageButtons}
+      ${btn(pg+1, 'Next →', pg===totalPages-1, false)}
+    </div>`;
+  }
+
+  // ── Sort ──────────────────────────────────────────────────────────────────
+  function _sortJobs(jobs, col, dir) {
     return [...jobs].sort((a, b) => {
       let av, bv;
       if (col === 'date') {
@@ -278,92 +372,38 @@
         bv = (b[col] || '').toLowerCase();
       }
       if (av < bv) return dir === 'asc' ? -1 : 1;
-      if (av > bv) return dir === 'asc' ? 1  : -1;
+      if (av > bv) return dir === 'asc' ?  1 : -1;
       return 0;
     });
   }
-
-  function renderTable(containerId, jobs) {
-    jobCache[containerId] = jobs;
-    const state = sortState[containerId] || { col: 'date', dir: 'desc' };
-    const sorted = sortJobs(jobs, state.col, state.dir);
-    _drawTable(containerId, sorted, state);
-  }
-
-  function _drawTable(containerId, jobs, state) {
-    const container = document.getElementById(containerId);
-    if (!jobs.length) {
-      container.innerHTML = `<div class="empty"><div class="empty-icon">📭</div>No jobs here yet.</div>`;
-      return;
-    }
-
-    const thClass = (col) => {
-      let cls = 'sortable';
-      if (state.col === col) cls += ' sort-' + state.dir;
-      return cls;
-    };
-
-    const rows = jobs.map(j => {
-      const dateVal = j.applied_at || j.created_at || '';
-      const dateDisplay = dateVal
-        ? new Date(dateVal).toLocaleDateString('en-IN', {day:'numeric',month:'short',year:'2-digit'})
-        : '—';
-      const linkedinLink = j.linkedin_url
-        ? `<a href="${j.linkedin_url}" target="_blank" style="font-size:11px;color:var(--text-dim)">LinkedIn ↗</a>` : '';
-      const externalLink = j.external_url
-        ? `<a href="${j.external_url}" target="_blank" class="btn btn-yellow" style="margin-right:6px">Apply Now ↗</a>` : '';
-      const markDoneBtn = j.status === 'needs_manual'
-        ? `<button class="btn btn-green" onclick="quickMarkDone(${j.id},event)">Mark Done</button>` : '';
-      const editBtn = `<button class="btn btn-muted" onclick="openModal(${j.id},'${escHtml(j.title)} @ ${escHtml(j.company)}','${j.status}')">Edit</button>`;
-
-      return `<tr data-search="${(j.title+' '+j.company).toLowerCase()}">
-        <td class="td-title">${escHtml(j.title)}<br><span style="font-size:11px;color:var(--text-dim)">${linkedinLink}</span></td>
-        <td class="td-company">${escHtml(j.company)}</td>
-        <td style="font-size:12px;color:var(--text-dim)">${escHtml(j.location||'')}</td>
-        <td><span class="badge badge-${j.status}">${j.status.replace(/_/g,' ')}</span></td>
-        <td style="font-size:12px;color:var(--text-dim);white-space:nowrap" data-ts="${dateVal}">${dateDisplay}</td>
-        <td class="td-actions">${externalLink}${markDoneBtn} ${editBtn}</td>
-      </tr>`;
-    }).join('');
-
-    container.innerHTML = `<div class="table-wrap"><table>
-      <thead><tr>
-        <th class="${thClass('title')} sortable" onclick="onSort('${containerId}','title')">Job Title<i class="sort-icon"></i></th>
-        <th class="${thClass('company')} sortable" onclick="onSort('${containerId}','company')">Company<i class="sort-icon"></i></th>
-        <th class="${thClass('location')} sortable" onclick="onSort('${containerId}','location')">Location<i class="sort-icon"></i></th>
-        <th class="${thClass('status')} sortable" onclick="onSort('${containerId}','status')">Status<i class="sort-icon"></i></th>
-        <th class="${thClass('date')} sortable" onclick="onSort('${containerId}','date')">Date<i class="sort-icon"></i></th>
-        <th>Actions</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div>`;
-
-    // Re-apply active search filter
-    const searchEl = document.getElementById('search-' + containerId.replace('table-', ''));
-    if (searchEl && searchEl.value) filterTable(containerId, searchEl.value);
-  }
-
   function onSort(containerId, col) {
     const state = sortState[containerId] || { col: 'date', dir: 'desc' };
-    const dir = state.col === col && state.dir === 'asc' ? 'desc' : 'asc';
-    sortState[containerId] = { col, dir };
-    const sorted = sortJobs(jobCache[containerId] || [], col, dir);
-    _drawTable(containerId, sorted, { col, dir });
+    sortState[containerId] = { col, dir: state.col === col && state.dir === 'asc' ? 'desc' : 'asc' };
+    pageState[containerId] = 0;
+    _render(containerId);
   }
 
-  // ── Live search filter ─────────────────────────────────────────────────────
+  // ── Pagination nav ────────────────────────────────────────────────────────
+  function goToPage(containerId, pg) {
+    pageState[containerId] = pg;
+    _render(containerId);
+  }
+
+  // ── Search ────────────────────────────────────────────────────────────────
   function filterTable(containerId, query) {
-    const q = query.toLowerCase().trim();
-    const rows = document.querySelectorAll(`#${containerId} tbody tr`);
-    rows.forEach(row => {
-      const text = row.getAttribute('data-search') || '';
-      row.classList.toggle('hidden-row', q.length > 0 && !text.includes(q));
-    });
+    searchState[containerId] = query;
+    pageState[containerId]   = 0;
+    _render(containerId);
   }
 
   // ── Loaders ────────────────────────────────────────────────────────────────
-  async function fetchJobs(status) {
-    const url = status ? `/api/jobs?status=${status}` : '/api/jobs';
+  function renderTable(containerId, jobs) {
+    jobCache[containerId]  = jobs;
+    pageState[containerId] = 0;
+    _render(containerId);
+  }
+  async function fetchJobs(status, limit=500) {
+    const url = status ? `/api/jobs?status=${status}&limit=${limit}` : `/api/jobs?limit=${limit}`;
     return fetch(url).then(r => r.json());
   }
   async function loadAll()      { renderTable('table-all',              await fetchJobs(null)); }
@@ -375,14 +415,14 @@
 
   // ── CSV export ─────────────────────────────────────────────────────────────
   function exportCSV(status) {
-    const key = status === 'all' ? 'table-all' : `table-${status}`;
+    const key  = status === 'all' ? 'table-all' : `table-${status}`;
     const jobs = jobCache[key] || [];
     if (!jobs.length) { toast('No jobs to export'); return; }
     const headers = ['title','company','location','status','apply_method','linkedin_url','external_url','applied_at','notes'];
-    const rows = jobs.map(j => headers.map(h => `"${(j[h]||'').toString().replace(/"/g,'""')}"`).join(','));
-    const csv = [headers.join(','), ...rows].join('\n');
+    const rows    = jobs.map(j => headers.map(h => `"${(j[h]||'').toString().replace(/"/g,'""')}"`).join(','));
+    const csv     = [headers.join(','), ...rows].join('\n');
     const a = document.createElement('a');
-    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+    a.href     = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
     a.download = `jobs_${status}_${new Date().toISOString().slice(0,10)}.csv`;
     a.click();
     toast(`Exported ${jobs.length} jobs ✓`);
@@ -399,10 +439,10 @@
 
   // ── Status modal ───────────────────────────────────────────────────────────
   function openModal(jobId, title, currentStatus) {
-    document.getElementById('modal-job-id').value = jobId;
+    document.getElementById('modal-job-id').value    = jobId;
     document.getElementById('modal-job-title').value = title;
-    document.getElementById('modal-status').value = currentStatus;
-    document.getElementById('modal-notes').value = '';
+    document.getElementById('modal-status').value    = currentStatus;
+    document.getElementById('modal-notes').value     = '';
     document.getElementById('modal-bg').classList.add('open');
   }
   function closeModal() { document.getElementById('modal-bg').classList.remove('open'); }

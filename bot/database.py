@@ -14,6 +14,9 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent.parent / ".env")
+
 from pymongo import MongoClient, ASCENDING, DESCENDING
 from pymongo.errors import DuplicateKeyError
 from bson import ObjectId
@@ -39,7 +42,11 @@ def _get_uri() -> str:
 
 def _db():
     uri = _get_uri()
-    client = MongoClient(uri, serverSelectionTimeoutMS=5000)
+    try:
+        import certifi
+        client = MongoClient(uri, serverSelectionTimeoutMS=5000, tlsCAFile=certifi.where())
+    except ImportError:
+        client = MongoClient(uri, serverSelectionTimeoutMS=5000)
     db_name = uri.rstrip("/").split("/")[-1].split("?")[0] or "jobbot"
     return client[db_name]
 

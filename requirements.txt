@@ -6,3 +6,4 @@ python-dotenv==1.0.1
 humanize==4.9.0
 pymongo[srv]==4.7.2
 dnspython==2.6.1
+certifi>=2024.2.2
