@@ -1,0 +1,180 @@
+# LinkedIn Job Automation Config
+
+# MongoDB Atlas connection string
+# Free tier: https://cloud.mongodb.com → New Project → Free Cluster → Connect → Drivers
+# Replace <user>, <password>, <cluster> with your values.
+# For local dev, use: mongodb://localhost:27017/jobbot
+mongodb_uri: "mongodb+srv://<user>:<password>@<cluster>.mongodb.net/jobbot?retryWrites=true&w=majority"
+
+linkedin:
+  email: "dhimandivya713@gmail.com"
+  # password not needed — you log in manually in the browser window
+
+search:
+  # Role keywords — used as the LinkedIn keyword search
+  role_keywords:
+    - "SDE II"
+    - "Software Development Engineer II"
+    - "Backend Engineer"
+    - "Java Developer"
+    - "Full Stack Developer"
+    - "Software Engineer"
+    - "Cloud Engineer"
+    - "Data Engineer"
+    - "Platform Engineer"
+
+  # Kept as fallback if target_companies have no linkedin_id set
+  keywords:
+    - "Software Engineer"
+    - "Backend Engineer"
+
+  # Precise location via LinkedIn geoId (more reliable than string location)
+  # Bengaluru, Karnataka, India = 105214831
+  geo_id: 105214831
+  distance_km: 50
+  location: "Bengaluru"     # fallback if geo_id not used
+
+  remote: true              # include remote roles
+  experience_levels:
+    - "associate"
+    - "mid_senior"
+  job_types:
+    - "full_time"
+  date_posted: "day"        # day | week | month  (day = last 24 h — good for target companies)
+  max_jobs: 100
+
+  # Title keywords to skip
+  exclude_title_keywords:
+    - "Senior"
+    - "Sr."
+    - "Principal"
+    - "Staff"
+    - "Lead"
+    - "Manager"
+    - "Architect"
+    - "Director"
+    - "VP"
+    - "Head of"
+    - "Chief"
+
+# Easy Apply auto-fill answers
+easy_apply:
+  phone: ""                 # ← add your phone number
+  years_of_experience:
+    default: 3
+    java: 3
+    python: 3
+    javascript: 2
+    sql: 3
+    aws: 2
+    react: 2
+    spring: 3
+    mongodb: 2
+    postgresql: 2
+  boolean_answers:
+    authorized_to_work: true
+    require_sponsorship: false
+    willing_to_relocate: false
+    have_bachelors_degree: true
+  cover_letter: ""
+
+# Profile — used to fill external career site forms
+profile:
+  first_name: "Divya"
+  last_name: "Dhiman"
+  email: "dhimandivya713@gmail.com"
+  phone: "+917888304878"                 
+  location: "Bangalore, India"
+  linkedin_url: "https://www.linkedin.com/in/divya-dhiman/"          
+  github_url: "https://github.com/divyadhimaan"            # ← add your GitHub URL
+  portfolio_url: "https://divyadportfolio.vercel.app"
+  resume_path: "resume.pdf" # place your resume in the project folder
+  current_title: "SDE II"
+  years_experience: 3
+  salary_expectation: "3200000"    # ← optional, e.g. "1800000" (annual, INR)
+  education:
+    degree: "Bachelor of Engineering"
+    major: "Computer Science"
+    university: "Thapar Institute of Engineering and Technology"          # ← add your university
+    graduation_year: 2023
+  skills:
+    - Java
+    - Python
+    - C++
+    - Spring Boot
+    - Microservices
+    - REST APIs
+    - React.js
+    - Next.js
+    - Node.js
+    - Express
+    - Flask
+    - GenAI
+    - LLM
+    - MongoDB
+    - PostgreSQL
+    - SQL
+    - AWS Lambda
+    - AWS ECS
+    - AWS S3
+    - Databricks
+    - Spinnaker
+    - Datadog
+    - RBAC
+    - Git
+    - Storybook
+
+# Target companies — linkedin_id drives the f_C filter in the search URL.
+# Verify/find IDs: run  python find_company_id.py <company name>
+target_companies:
+  - name: Uber
+    linkedin_id: 1326521
+  - name: Atlassian
+    linkedin_id: 11463
+  - name: Spotify
+    linkedin_id: 137979
+  - name: Pinterest
+    linkedin_id: 2630713
+  - name: Stripe
+    linkedin_id: 3477522
+  - name: Databricks
+    linkedin_id: 4840301
+  - name: Amazon
+    linkedin_id: 1586
+  - name: Rubrik
+    linkedin_id: 3795851
+  - name: Postman
+    linkedin_id: 7088849
+  - name: Microsoft
+    linkedin_id: 1035
+  - name: Flipkart
+    linkedin_id: 2991423
+  - name: Google
+    linkedin_id: 1441
+  - name: Goldman Sachs
+    linkedin_id: 1284
+  - name: D.E. Shaw
+    linkedin_id: 6508
+  - name: Zomato
+    linkedin_id: 422813
+  - name: District
+    linkedin_id: 105038923
+  - name: Zepto
+    linkedin_id: 76108196
+  - name: Salesforce
+    linkedin_id: 2029
+  - name: Porter
+    linkedin_id: 71697
+
+# Bot behaviour
+settings:
+  headless: false           # false = see the browser (recommended while testing)
+  slow_mo: 500              # ms between actions
+  pause_between_jobs: 3     # seconds between each job
+  skip_if_already_applied: true
+  skip_promoted: false
+  log_level: "INFO"         # DEBUG | INFO | WARNING | ERROR
+
+  # Set to true to ONLY process jobs from companies in target_companies list above.
+  # Set to false to process all companies (still excludes titles via exclude_title_keywords).
+  target_companies_only: false

@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS LaunchAgent — runs the LinkedIn job bot automatically.
+
+  SETUP (one-time):
+    1. Edit WorkingDirectory and ProgramArguments paths below to match your machine.
+    2. cp launchd/com.jobbot.run.plist ~/Library/LaunchAgents/
+    3. launchctl load ~/Library/LaunchAgents/com.jobbot.run.plist
+
+  SCHEDULE: runs every weekday (Mon–Fri) at 09:00 AM by default.
+  Change the Hour/Minute values below to adjust.
+
+  LOGS: stdout → /tmp/jobbot.log  |  stderr → /tmp/jobbot_err.log
+  View: tail -f /tmp/jobbot.log
+
+  DISABLE:
+    launchctl unload ~/Library/LaunchAgents/com.jobbot.run.plist
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.jobbot.run</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>/Users/divyadhiman/Dev/linkedin-job-automation/run_bot.py</string>
+    <string>--dry-run</string>  <!-- Remove --dry-run once you're happy with results -->
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/divyadhiman/Dev/linkedin-job-automation</string>
+
+  <!-- Run every weekday at 09:00 -->
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict>
+      <key>Weekday</key><integer>1</integer>
+      <key>Hour</key><integer>9</integer>
+      <key>Minute</key><integer>0</integer>
+    </dict>
+    <dict>
+      <key>Weekday</key><integer>2</integer>
+      <key>Hour</key><integer>9</integer>
+      <key>Minute</key><integer>0</integer>
+    </dict>
+    <dict>
+      <key>Weekday</key><integer>3</integer>
+      <key>Hour</key><integer>9</integer>
+      <key>Minute</key><integer>0</integer>
+    </dict>
+    <dict>
+      <key>Weekday</key><integer>4</integer>
+      <key>Hour</key><integer>9</integer>
+      <key>Minute</key><integer>0</integer>
+    </dict>
+    <dict>
+      <key>Weekday</key><integer>5</integer>
+      <key>Hour</key><integer>9</integer>
+      <key>Minute</key><integer>0</integer>
+    </dict>
+  </array>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/jobbot.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/tmp/jobbot_err.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- Set your MongoDB URI here so the bot can connect when launched by launchd -->
+    <key>MONGODB_URI</key>
+    <string>mongodb+srv://YOUR_USER:YOUR_PASS@YOUR_CLUSTER.mongodb.net/jobbot</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
