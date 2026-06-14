@@ -27,6 +27,23 @@ def human_delay(min_s: float = 0.5, max_s: float = 2.0):
     time.sleep(random.uniform(min_s, max_s))
 
 
+def human_scroll(page, direction: str = "down", min_px: int = 150, max_px: int = 450):
+    """Scroll the page a random human-like amount."""
+    amount = random.randint(min_px, max_px)
+    page.mouse.wheel(0, amount if direction == "down" else -amount)
+    time.sleep(random.uniform(0.2, 0.6))
+
+
+def random_mouse_wander(page, n: int = 2):
+    """Move the mouse to a few random positions — breaks up bot-like stillness."""
+    vp = page.viewport_size or {"width": 1280, "height": 900}
+    for _ in range(n):
+        x = random.randint(100, vp["width"]  - 100)
+        y = random.randint(100, vp["height"] - 100)
+        page.mouse.move(x, y)
+        time.sleep(random.uniform(0.05, 0.2))
+
+
 def safe_text(el) -> str:
     """Extract stripped text from a Playwright element, empty string on failure."""
     try:

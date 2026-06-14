@@ -162,6 +162,12 @@ def job_exists(linkedin_id: str) -> bool:
 
 # ── Runs ───────────────────────────────────────────────────────────────────
 
+def get_latest_run() -> dict | None:
+    db = _db()
+    doc = db.runs.find_one({}, sort=[("started_at", DESCENDING)])
+    return _clean(doc) if doc else None
+
+
 def start_run() -> str:
     db = _db()
     result = db.runs.insert_one({"started_at": _now()})

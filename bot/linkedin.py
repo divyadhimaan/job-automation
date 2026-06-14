@@ -13,6 +13,7 @@ Flow:
 
 import re
 import time
+import random
 import logging
 from pathlib import Path
 from urllib.parse import urlencode, quote_plus
@@ -23,7 +24,7 @@ from .database import (
     start_run, finish_run,
 )
 from .utils import (
-    load_config, setup_logger, human_delay,
+    load_config, setup_logger, human_delay, human_scroll, random_mouse_wander,
     EXPERIENCE_MAP, JOB_TYPE_MAP, DATE_POSTED_MAP,
 )
 
@@ -105,7 +106,10 @@ def run(config_path: str = None, config: dict = None, debug: bool = False):
                 while job_count < pass_limit:
                     paginated_url = search_url + f"&start={page_num * 25}"
                     page.goto(paginated_url, wait_until="load", timeout=30000)
-                    human_delay(3, 5)
+                    human_delay(2, 4)
+                    random_mouse_wander(page, n=random.randint(1, 3))
+                    human_scroll(page, "down", 100, 300)
+                    human_delay(1, 2)
 
                     if debug:
                         shot = f"debug_{pass_mode}_page{page_num+1}.png"
@@ -142,7 +146,10 @@ def run(config_path: str = None, config: dict = None, debug: bool = False):
                             errors.append(str(e))
                             counters["failed"] += 1
 
-                        time.sleep(cfg["settings"].get("pause_between_jobs", 3))
+                        pause = cfg["settings"].get("pause_between_jobs", 3)
+                        time.sleep(random.uniform(pause * 0.8, pause * 1.4))
+                        if random.random() < 0.4:  # 40% chance of a scroll between cards
+                            human_scroll(page, "down", 80, 200)
 
                     page_num += 1
 
@@ -386,7 +393,7 @@ def _is_target_company(company: str, cfg: dict) -> bool:
 def _process_job_card(page: Page, card, cfg: dict) -> dict | None:
     """Click a job card, extract details, filter, and attempt to apply."""
     try:
-        card.click()
+        _human_click(page, card)
         human_delay(1.5, 2.5)
     except Exception:
         return None
@@ -551,6 +558,24 @@ def _extract_job_details(page: Page) -> dict | None:
             log.warning(f"Could not extract title from {current_url} — skipping")
             return None
 
+        # Job description
+        description = ""
+        for desc_sel in [
+            ".jobs-description-content__text",
+            ".jobs-box__html-content",
+            "#job-details",
+            ".jobs-description__content",
+            "div[class*='description__text']",
+        ]:
+            try:
+                el = page.query_selector(desc_sel)
+                if el:
+                    description = el.inner_text().strip()
+                    if description:
+                        break
+            except Exception:
+                pass
+
         return {
             "linkedin_id":    linkedin_id,
             "title":          title,
@@ -558,6 +583,7 @@ def _extract_job_details(page: Page) -> dict | None:
             "location":       location,
             "workplace_type": workplace_type,
             "salary":         salary,
+            "description":    description,
             "linkedin_url":   current_url,
             "external_url":   external_url,
             "apply_method":   apply_method,
@@ -588,74 +614,149 @@ def _get_external_apply_url(page: Page) -> str | None:
 # Easy Apply flow
 # ---------------------------------------------------------------------------
 
+_MODAL_SELS = [
+    ".jobs-easy-apply-modal",
+    "[data-test-modal-id='easy-apply-modal']",
+    "div.artdeco-modal[role='dialog']",
+    "div[role='dialog']",
+]
+
+def _modal_visible(page: Page):
+    """Return the modal element if visible, else None."""
+    for sel in _MODAL_SELS:
+        try:
+            el = page.query_selector(sel)
+            if el and el.is_visible():
+                return el
+        except Exception:
+            pass
+    return None
+
+
+def _find_footer_button(page: Page, labels: list) -> object | None:
+    """
+    Find a visible, enabled button in the modal footer whose aria-label or
+    inner text contains any of the given label strings (case-insensitive).
+    Searches footer first, then the whole dialog as fallback.
+    """
+    for container_sel in (
+        "footer.artdeco-modal__actionbar",
+        ".jobs-easy-apply-modal footer",
+        ".artdeco-modal footer",
+        "footer",
+        "div[role='dialog']",
+    ):
+        try:
+            container = page.query_selector(container_sel)
+            if not container:
+                continue
+            for btn in container.query_selector_all("button"):
+                try:
+                    aria  = (btn.get_attribute("aria-label") or "").lower()
+                    text  = btn.inner_text().strip().lower()
+                    for target in labels:
+                        if target in aria or target in text:
+                            if btn.is_visible() and btn.is_enabled():
+                                return btn
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    return None
+
+
+def _human_click(page: Page, element):
+    """Move mouse to a random point inside the element, then click — anti-detection."""
+    try:
+        box = element.bounding_box()
+        if box:
+            x = box["x"] + box["width"]  * random.uniform(0.25, 0.75)
+            y = box["y"] + box["height"] * random.uniform(0.25, 0.75)
+            page.mouse.move(x + random.uniform(-4, 4), y + random.uniform(-3, 3))
+            human_delay(0.08, 0.25)
+            page.mouse.click(x, y)
+            return
+    except Exception:
+        pass
+    element.click()
+
+
 def _do_easy_apply(page: Page, cfg: dict, job_data: dict) -> bool:
-    """Click Easy Apply and navigate the multi-step modal."""
+    """Click Easy Apply and walk through the multi-step modal."""
     log.info(f"  → Starting Easy Apply for {job_data['title']}")
     try:
-        # Find button whose label or text contains "Easy Apply"
+        # Find the Easy Apply button by scanning text/aria-label (class-agnostic)
         btn = None
-        for candidate in page.query_selector_all("button.jobs-apply-button, .jobs-apply-button"):
+        for candidate in page.query_selector_all("button"):
             try:
-                label = (candidate.get_attribute("aria-label") or "").lower()
-                text  = candidate.inner_text().strip().lower()
-                if "easy apply" in label or "easy apply" in text:
+                aria = (candidate.get_attribute("aria-label") or "").lower()
+                text = candidate.inner_text().strip().lower()
+                if ("easy apply" in aria or "easy apply" in text) and candidate.is_visible():
                     btn = candidate
                     break
             except Exception:
                 pass
+
         if not btn:
-            log.warning("  → Easy Apply button not found")
+            log.warning("  → Easy Apply button not found on page")
             return False
 
-        btn.click()
-        human_delay(1.5, 2.5)
+        _human_click(page, btn)
+        human_delay(2, 3)
 
-        # Iterate through modal steps (LinkedIn can have 1-5 steps)
-        max_steps = 8
-        for step in range(max_steps):
-            if not page.query_selector(".jobs-easy-apply-modal"):
-                log.info("  → Modal closed (likely submitted or dismissed)")
+        # Wait for modal to appear
+        for _ in range(10):
+            if _modal_visible(page):
                 break
+            human_delay(0.4, 0.8)
 
-            # Fill form fields on this step
-            _fill_easy_apply_step(page, cfg)
-            human_delay(0.8, 1.5)
+        if not _modal_visible(page):
+            log.warning("  → Easy Apply modal did not open")
+            return False
 
-            # Check for Submit button
-            submit_btn = page.query_selector(
-                "button[aria-label='Submit application'], "
-                "footer button.artdeco-button--primary[aria-label*='Submit']"
-            )
-            if submit_btn:
-                submit_btn.click()
-                human_delay(1.5, 2.5)
-                # Confirm success dialog
-                if page.query_selector("div.jobs-easy-apply-modal h3"):
-                    page.keyboard.press("Escape")
-                log.info("  → Application submitted!")
+        max_steps = 10
+        for step in range(max_steps):
+            if not _modal_visible(page):
+                log.info("  → Modal closed — application likely submitted")
+                # Check: if we're back to the job detail without the modal, it succeeded
                 return True
 
-            # Next / Review button
-            next_btn = page.query_selector(
-                "button[aria-label='Continue to next step'], "
-                "footer button.artdeco-button--primary[aria-label*='Next'], "
-                "footer button.artdeco-button--primary[aria-label*='Review']"
+            log.info(f"  → Easy Apply step {step + 1}")
+            _fill_easy_apply_step(page, cfg)
+            human_delay(1, 1.8)
+
+            # Submit takes priority over Next
+            submit_btn = _find_footer_button(page, ["submit application", "submit"])
+            if submit_btn:
+                _human_click(page, submit_btn)
+                human_delay(2, 3)
+                # Dismiss success confirmation if it appears
+                try:
+                    page.keyboard.press("Escape")
+                    human_delay(0.5, 1)
+                except Exception:
+                    pass
+                log.info("  → Application submitted ✓")
+                return True
+
+            next_btn = _find_footer_button(
+                page, ["continue to next step", "next", "review your application", "review"]
             )
             if next_btn:
-                next_btn.click()
+                _human_click(page, next_btn)
                 human_delay(1, 2)
-            else:
-                # No recognizable button — bail out
-                log.warning("  → Could not find Next/Submit button, dismissing")
-                _dismiss_modal(page)
-                return False
+                continue
 
-        log.warning("  → Exceeded max steps, dismissing modal")
+            log.warning(f"  → Step {step + 1}: no Next/Submit button found — bailing out")
+            _dismiss_modal(page)
+            return False
+
+        log.warning("  → Exceeded max steps — dismissing modal")
         _dismiss_modal(page)
         return False
 
     except Exception as e:
-        log.error(f"  → Easy Apply error: {e}")
+        log.error(f"  → Easy Apply error: {e}", exc_info=True)
         _dismiss_modal(page)
         return False
 
@@ -808,12 +909,26 @@ def _guess_boolean_radio(question: str, ea_cfg: dict) -> bool | None:
 
 
 def _dismiss_modal(page: Page):
+    """Close the Easy Apply modal and confirm discard if prompted."""
     try:
         page.keyboard.press("Escape")
-        human_delay(0.5, 1)
-        discard_btn = page.query_selector("button[data-control-name='discard_application_confirm_btn']")
-        if discard_btn:
-            discard_btn.click()
+        human_delay(0.8, 1.5)
+        # LinkedIn shows a discard confirmation — click it if present
+        for sel in [
+            "button[data-control-name='discard_application_confirm_btn']",
+            "button[aria-label='Discard']",
+            "button[data-easy-apply-next-button]",
+        ]:
+            btn = page.query_selector(sel)
+            if btn and btn.is_visible():
+                _human_click(page, btn)
+                human_delay(0.5, 1)
+                return
+        # Fallback: look for a "Discard" button by text
+        discard = _find_footer_button(page, ["discard"])
+        if discard:
+            _human_click(page, discard)
+            human_delay(0.5, 1)
     except Exception:
         pass
 

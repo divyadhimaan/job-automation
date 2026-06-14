@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Job Application Tracker</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -17,9 +18,11 @@
       --yellow:    #f59e0b;
       --red:       #ef4444;
       --blue:      #3b82f6;
+      --purple:    #a855f7;
       --muted:     #6b7280;
       --text:      #e2e8f0;
       --text-dim:  #94a3b8;
+      --new:       #fbbf24;
       --radius:    10px;
       --radius-sm: 6px;
       font-size: 14px;
@@ -30,13 +33,34 @@
 
     /* ── Layout ── */
     .shell { display: flex; min-height: 100vh; }
-    .sidebar { width: 220px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border); padding: 24px 0; display: flex; flex-direction: column; gap: 4px; }
-    .sidebar-logo { padding: 0 20px 20px; font-weight: 700; font-size: 16px; color: var(--accent-h); display: flex; align-items: center; gap: 8px; }
-    .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 20px; cursor: pointer; color: var(--text-dim); transition: all .15s; font-size: 13.5px; border-left: 3px solid transparent; }
+    .sidebar { width: 220px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border); padding: 16px 0 24px; display: flex; flex-direction: column; gap: 4px; transition: width .2s ease; overflow: hidden; }
+    .sidebar.collapsed { width: 52px; }
+
+    /* Logo row */
+    .sidebar-logo { padding: 0 14px 16px; font-weight: 700; font-size: 16px; color: var(--accent-h); display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+    .sidebar-logo .logo-text { transition: opacity .15s, width .15s; }
+    .sidebar.collapsed .sidebar-logo .logo-text { opacity: 0; width: 0; overflow: hidden; }
+
+    /* Toggle button */
+    .sidebar-toggle { margin-left: auto; background: transparent; border: none; color: var(--text-dim); cursor: pointer; font-size: 16px; padding: 2px 4px; border-radius: 4px; flex-shrink: 0; line-height: 1; transition: color .15s; }
+    .sidebar-toggle:hover { color: var(--text); }
+    .sidebar.collapsed .sidebar-toggle { margin-left: 0; }
+
+    /* Nav items */
+    .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; color: var(--text-dim); transition: background .15s, color .15s; font-size: 13.5px; border-left: 3px solid transparent; white-space: nowrap; position: relative; }
     .nav-item:hover { background: var(--surface2); color: var(--text); }
     .nav-item.active { background: var(--surface2); color: var(--accent-h); border-left-color: var(--accent); }
-    .nav-badge { margin-left: auto; background: var(--surface2); border: 1px solid var(--border); color: var(--text-dim); font-size: 11px; padding: 1px 7px; border-radius: 20px; }
+    .nav-icon { font-size: 15px; flex-shrink: 0; width: 20px; text-align: center; }
+    .nav-label { transition: opacity .15s, width .15s; overflow: hidden; }
+    .sidebar.collapsed .nav-label { opacity: 0; width: 0; }
+    .nav-badge { margin-left: auto; background: var(--surface2); border: 1px solid var(--border); color: var(--text-dim); font-size: 11px; padding: 1px 7px; border-radius: 20px; flex-shrink: 0; transition: opacity .15s; }
     .nav-item.active .nav-badge { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .sidebar.collapsed .nav-badge { opacity: 0; width: 0; padding: 0; border: none; overflow: hidden; }
+
+    /* Tooltip on collapsed items */
+    .sidebar.collapsed .nav-item::after { content: attr(data-label); position: absolute; left: 56px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 5px 10px; border-radius: var(--radius-sm); font-size: 12px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .1s; z-index: 300; box-shadow: 0 4px 12px rgba(0,0,0,.4); }
+    .sidebar.collapsed .nav-item:hover::after { opacity: 1; }
+
     .main { flex: 1; overflow: auto; padding: 28px 32px; }
     .page { display: none; }
     .page.active { display: block; }
@@ -46,19 +70,61 @@
     .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
     .stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim); margin-bottom: 8px; }
     .stat-value { font-size: 28px; font-weight: 700; line-height: 1; }
-    .stat-card.green .stat-value  { color: var(--green);  }
-    .stat-card.yellow .stat-value { color: var(--yellow); }
-    .stat-card.red .stat-value    { color: var(--red);    }
+    .stat-card.green  .stat-value { color: var(--green);    }
+    .stat-card.yellow .stat-value { color: var(--yellow);   }
+    .stat-card.red    .stat-value { color: var(--red);      }
     .stat-card.accent .stat-value { color: var(--accent-h); }
+    .stat-card.purple .stat-value { color: var(--purple);   }
 
     /* ── Section header ── */
-    .section-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+    .section-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
     .section-title  { font-size: 16px; font-weight: 600; margin-right: auto; }
-    .search-box { background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: var(--radius-sm); font-size: 12px; width: 220px; outline: none; }
+    .search-box { background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: var(--radius-sm); font-size: 12px; width: 200px; outline: none; }
     .search-box:focus { border-color: var(--accent); }
     .search-box::placeholder { color: var(--muted); }
-    .icon-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--text-dim); padding: 6px 12px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; transition: all .15s; }
+    .icon-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--text-dim); padding: 6px 12px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; transition: all .15s; white-space: nowrap; }
     .icon-btn:hover { color: var(--text); border-color: var(--accent); }
+
+    /* ── Filter bar ── */
+    .filter-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; min-height: 36px; }
+    .filter-label { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+
+    /* Segmented date toggle */
+    .seg-group { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+    .seg-btn { background: var(--surface2); color: var(--text-dim); padding: 5px 11px; font-size: 11px; cursor: pointer; border: none; border-right: 1px solid var(--border); transition: all .12s; white-space: nowrap; }
+    .seg-btn:last-child { border-right: none; }
+    .seg-btn:hover { color: var(--text); background: var(--border); }
+    .seg-btn.active { background: var(--accent); color: #fff; }
+
+    /* Company dropdown */
+    .filter-dropdown-wrap { position: relative; }
+    .filter-dropdown-btn { display: inline-flex; align-items: center; gap: 6px; background: var(--surface2); border: 1px solid var(--border); color: var(--text-dim); padding: 5px 11px; border-radius: var(--radius-sm); font-size: 11px; cursor: pointer; transition: all .12s; white-space: nowrap; user-select: none; }
+    .filter-dropdown-btn:hover { border-color: var(--accent); color: var(--text); }
+    .filter-dropdown-btn.has-selection { border-color: var(--accent); color: var(--accent-h); background: #6366f115; }
+    .filter-dropdown-btn .fdb-count { background: var(--accent); color: #fff; border-radius: 20px; padding: 0 6px; font-size: 10px; font-weight: 700; }
+    .filter-dropdown-panel { position: absolute; top: calc(100% + 6px); left: 0; z-index: 150; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0,0,0,.5); min-width: 200px; max-width: 280px; display: none; flex-direction: column; overflow: hidden; }
+    .filter-dropdown-panel.open { display: flex; }
+    .fdp-search { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+    .fdp-search input { width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 5px 9px; border-radius: var(--radius-sm); font-size: 12px; outline: none; }
+    .fdp-search input:focus { border-color: var(--accent); }
+    .fdp-list { overflow-y: auto; max-height: 220px; padding: 4px 0; }
+    .fdp-item { display: flex; align-items: center; gap: 8px; padding: 7px 12px; cursor: pointer; font-size: 12px; color: var(--text-dim); transition: background .1s; }
+    .fdp-item:hover { background: var(--surface2); color: var(--text); }
+    .fdp-item input[type=checkbox] { accent-color: var(--accent); width: 13px; height: 13px; flex-shrink: 0; cursor: pointer; }
+    .fdp-item.fdp-all { border-bottom: 1px solid var(--border); color: var(--text); font-weight: 600; margin-bottom: 2px; }
+    .fdp-footer { padding: 8px 10px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-dim); }
+    .fdp-clear { color: var(--accent-h); cursor: pointer; }
+    .fdp-clear:hover { text-decoration: underline; }
+
+    /* Active filter clear badge */
+    .filter-clear-all { display: inline-flex; align-items: center; gap: 4px; background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 5px 10px; border-radius: var(--radius-sm); font-size: 11px; cursor: pointer; transition: all .12s; }
+    .filter-clear-all:hover { border-color: var(--red); color: var(--red); }
+
+    /* Chip (kept for other uses) */
+    .chip { background: var(--surface2); border: 1px solid var(--border); color: var(--text-dim); padding: 3px 10px; border-radius: 20px; font-size: 11px; cursor: pointer; transition: all .12s; white-space: nowrap; }
+    .chip:hover { border-color: var(--accent); color: var(--text); }
+    .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .chip-all { font-weight: 600; }
 
     /* ── Table ── */
     .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
@@ -67,17 +133,27 @@
     thead th.sortable { cursor: pointer; }
     thead th.sortable:hover { color: var(--text); }
     thead th .sort-icon { display: inline-block; margin-left: 4px; opacity: .4; font-style: normal; }
-    thead th.sort-asc .sort-icon::after  { content: '▲'; opacity: 1; color: var(--accent-h); }
+    thead th.sort-asc  .sort-icon::after { content: '▲'; opacity: 1; color: var(--accent-h); }
     thead th.sort-desc .sort-icon::after { content: '▼'; opacity: 1; color: var(--accent-h); }
     thead th:not(.sort-asc):not(.sort-desc) .sort-icon::after { content: '⇅'; }
-    tbody tr { border-bottom: 1px solid var(--border); transition: background .1s; }
-    tbody tr:last-child { border-bottom: none; }
-    tbody tr:hover { background: var(--surface2); }
-    tbody tr.hidden-row { display: none; }
+    tbody tr.job-row { border-bottom: 1px solid var(--border); transition: background .1s; cursor: pointer; }
+    tbody tr.job-row:hover { background: var(--surface2); }
+    tbody tr.job-row.new-job td:first-child { border-left: 3px solid var(--new); }
+    tbody tr.detail-row { border-bottom: 1px solid var(--border); background: var(--surface2); display: none; }
+    tbody tr.detail-row.open { display: table-row; }
     tbody td { padding: 12px 14px; font-size: 13px; vertical-align: middle; }
-    .td-title { font-weight: 500; color: var(--text); max-width: 260px; }
+    .td-title   { font-weight: 500; color: var(--text); max-width: 240px; }
     .td-company { color: var(--text-dim); }
     .td-actions { white-space: nowrap; }
+    .new-dot { display: inline-block; width: 7px; height: 7px; background: var(--new); border-radius: 50%; margin-right: 5px; vertical-align: middle; title: 'New this run'; }
+
+    /* ── Detail panel ── */
+    .detail-panel { padding: 16px 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .detail-panel .dp-section { display: flex; flex-direction: column; gap: 6px; }
+    .dp-label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); }
+    .dp-value { font-size: 13px; color: var(--text); word-break: break-word; }
+    .dp-value a { color: var(--accent-h); }
+    .detail-actions { display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
 
     /* ── Badges ── */
     .badge { display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
@@ -87,6 +163,22 @@
     .badge-discovered       { background: #1e3a5f33; color: var(--blue);   border: 1px solid #3b82f644; }
     .badge-skipped          { background: #1f293733; color: var(--muted);  border: 1px solid #374151; }
     .badge-failed           { background: #450a0a33; color: var(--red);    border: 1px solid #b91c1c44; }
+    .badge-interviewing     { background: #4c1d9533; color: var(--purple); border: 1px solid #7c3aed44; }
+    .badge-offer            { background: #14532d33; color: #86efac;       border: 1px solid #4ade8044; }
+    .badge-rejected         { background: #450a0a33; color: #f87171;       border: 1px solid #ef444444; }
+    .badge-not_relevant     { background: #1c1917aa; color: #a8a29e;       border: 1px solid #57534e55; }
+    .badge-expired          { background: #1e1b2e55; color: #818cf8;       border: 1px solid #6366f144; }
+    .badge.clickable { cursor: pointer; }
+    .badge.clickable:hover { filter: brightness(1.25); }
+
+    /* ── Status dropdown ── */
+    #status-dropdown { position: fixed; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: 0 8px 24px rgba(0,0,0,.5); z-index: 200; min-width: 170px; padding: 4px 0; display: none; }
+    #status-dropdown.open { display: block; }
+    .sd-group { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 6px 12px 2px; }
+    .sd-option { padding: 7px 12px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 8px; color: var(--text-dim); transition: background .1s; }
+    .sd-option:hover { background: var(--surface2); color: var(--text); }
+    .sd-option.current { color: var(--text); font-weight: 600; }
+    .sd-divider { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
 
     /* ── Buttons ── */
     .btn { padding: 5px 12px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 500; cursor: pointer; border: 1px solid transparent; transition: all .15s; }
@@ -99,6 +191,15 @@
     .btn-link   { background: var(--accent); color: #fff; border-color: var(--accent); }
     .btn-link:hover   { background: var(--accent-h); }
 
+    /* ── Pagination ── */
+    .pagination { display: flex; align-items: center; gap: 6px; padding: 12px 14px; background: var(--surface); border-top: 1px solid var(--border); flex-wrap: wrap; }
+    .pagination-info { font-size: 12px; color: var(--text-dim); margin-right: auto; }
+    .pg-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--text-dim); padding: 5px 10px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; min-width: 32px; text-align: center; transition: all .15s; }
+    .pg-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+    .pg-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .pg-btn:disabled { opacity: .35; cursor: default; }
+    .pg-ellipsis { color: var(--muted); font-size: 12px; padding: 0 4px; }
+
     /* ── Empty ── */
     .empty { padding: 48px; text-align: center; color: var(--text-dim); }
     .empty-icon { font-size: 40px; margin-bottom: 12px; }
@@ -107,7 +208,7 @@
     #toast { position: fixed; bottom: 24px; right: 24px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 12px 20px; border-radius: var(--radius); font-size: 13px; opacity: 0; transform: translateY(8px); transition: all .2s; pointer-events: none; z-index: 999; }
     #toast.show { opacity: 1; transform: translateY(0); }
 
-    /* ── Modal ── */
+    /* ── Modal (shared) ── */
     .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 100; align-items: center; justify-content: center; }
     .modal-bg.open { display: flex; }
     .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; width: 520px; max-width: 95vw; }
@@ -118,14 +219,56 @@
     .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
     .modal-actions .btn { padding: 8px 18px; font-size: 13px; }
 
-    /* ── Pagination ── */
-    .pagination { display: flex; align-items: center; gap: 6px; padding: 12px 14px; background: var(--surface); border-top: 1px solid var(--border); flex-wrap: wrap; }
-    .pagination-info { font-size: 12px; color: var(--text-dim); margin-right: auto; }
-    .pg-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--text-dim); padding: 5px 10px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; min-width: 32px; text-align: center; transition: all .15s; }
-    .pg-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
-    .pg-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-    .pg-btn:disabled { opacity: .35; cursor: default; }
-    .pg-ellipsis { color: var(--muted); font-size: 12px; padding: 0 4px; }
+    /* ── Job Detail Modal ── */
+    .jd-modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); width: 680px; max-width: 96vw; max-height: 88vh; display: flex; flex-direction: column; overflow: hidden; }
+    .jd-header { padding: 22px 24px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .jd-title { font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+    .jd-company { font-size: 14px; color: var(--text-dim); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .jd-body { padding: 20px 24px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 18px; }
+    .jd-dates { display: flex; gap: 20px; flex-wrap: wrap; }
+    .jd-date-item { display: flex; flex-direction: column; gap: 2px; }
+    .jd-date-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim); }
+    .jd-date-value { font-size: 12px; color: var(--text); }
+    .jd-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .jd-meta-item { display: flex; flex-direction: column; gap: 3px; }
+    .jd-meta-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim); }
+    .jd-meta-value { font-size: 13px; color: var(--text); }
+    .jd-section-title { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim); margin-bottom: 6px; }
+    .jd-description { font-size: 13px; color: var(--text-dim); line-height: 1.7; white-space: pre-wrap; max-height: 280px; overflow-y: auto; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; }
+    .jd-notes { font-size: 13px; color: var(--text); background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 14px; }
+    .jd-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; gap: 10px; align-items: center; flex-shrink: 0; flex-wrap: wrap; }
+    .jd-footer .btn { padding: 7px 16px; font-size: 13px; }
+    .jd-close { margin-left: auto; background: transparent; border: none; color: var(--muted); font-size: 20px; cursor: pointer; line-height: 1; padding: 2px 6px; border-radius: 4px; }
+    .jd-close:hover { color: var(--text); background: var(--surface2); }
+
+    /* ── Notes cell ── */
+    .notes-cell { display: block; font-size: 12px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; padding: 2px 6px; border-radius: var(--radius-sm); border: 1px solid transparent; transition: all .12s; }
+    .notes-cell:hover { background: var(--surface2); border-color: var(--border); color: var(--text); }
+    .notes-empty { color: var(--border); font-size: 11px; }
+    .notes-cell:hover .notes-empty { color: var(--muted); }
+
+    /* ── Page loader ── */
+    #page-loader { position: absolute; inset: 0; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; z-index: 50; }
+    #page-loader.hidden { display: none; }
+    .spinner { width: 36px; height: 36px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loader-text { font-size: 13px; color: var(--text-dim); }
+    .main { position: relative; }
+
+    /* ── Analytics ── */
+    .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 28px; }
+    .chart-card  { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+    .chart-title { font-size: 13px; font-weight: 600; color: var(--text-dim); margin-bottom: 16px; text-transform: uppercase; letter-spacing: .05em; }
+    .chart-card canvas { max-height: 220px; }
+    .company-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .company-table td { padding: 8px 4px; border-bottom: 1px solid var(--border); }
+    .company-table td:last-child { text-align: right; color: var(--accent-h); font-weight: 600; }
+
+    /* ── Interview pipeline ── */
+    .pipeline { display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+    .pipeline-stage { flex: 1; min-width: 130px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+    .pipeline-stage-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim); margin-bottom: 8px; }
+    .pipeline-stage-count { font-size: 26px; font-weight: 700; color: var(--purple); }
 
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -135,79 +278,145 @@
 <body>
 <div class="shell">
 
-  <nav class="sidebar">
-    <div class="sidebar-logo">⚡ JobBot</div>
-    <div class="nav-item active" onclick="showPage('all', event)">🗂 All Jobs <span class="nav-badge" id="badge-total">0</span></div>
-    <div class="nav-item" onclick="showPage('needs_manual', event)">🖱 Needs Manual <span class="nav-badge" id="badge-needs_manual">0</span></div>
-    <div class="nav-item" onclick="showPage('applied', event)">✅ Easy Applied <span class="nav-badge" id="badge-applied">0</span></div>
-    <div class="nav-item" onclick="showPage('manually_applied', event)">📩 Manually Applied <span class="nav-badge" id="badge-manually_applied">0</span></div>
-    <div class="nav-item" onclick="showPage('failed', event)">⚠️ Failed <span class="nav-badge" id="badge-failed">0</span></div>
-    <div class="nav-item" onclick="showPage('skipped', event)">⏭ Skipped <span class="nav-badge" id="badge-skipped">0</span></div>
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <span>⚡</span>
+      <span class="logo-text">JobBot</span>
+      <button class="sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar">‹</button>
+    </div>
+    <div class="nav-item active" data-label="All Jobs" onclick="showPage('all',event)"><span class="nav-icon">🗂</span><span class="nav-label">All Jobs</span><span class="nav-badge" id="badge-total">0</span></div>
+    <div class="nav-item" data-label="Needs Manual" onclick="showPage('needs_manual',event)"><span class="nav-icon">🖱</span><span class="nav-label">Needs Manual</span><span class="nav-badge" id="badge-needs_manual">0</span></div>
+    <div class="nav-item" data-label="Easy Applied" onclick="showPage('applied',event)"><span class="nav-icon">✅</span><span class="nav-label">Easy Applied</span><span class="nav-badge" id="badge-applied">0</span></div>
+    <div class="nav-item" data-label="Manually Applied" onclick="showPage('manually_applied',event)"><span class="nav-icon">📩</span><span class="nav-label">Manually Applied</span><span class="nav-badge" id="badge-manually_applied">0</span></div>
+    <div class="nav-item" data-label="Interviews" onclick="showPage('interviews',event)"><span class="nav-icon">🎯</span><span class="nav-label">Interviews</span><span class="nav-badge" id="badge-interviewing">0</span></div>
+    <div class="nav-item" data-label="Analytics" onclick="showPage('analytics',event)"><span class="nav-icon">📊</span><span class="nav-label">Analytics</span></div>
+    <div class="nav-item" data-label="Failed" onclick="showPage('failed',event)"><span class="nav-icon">⚠️</span><span class="nav-label">Failed</span><span class="nav-badge" id="badge-failed">0</span></div>
+    <div class="nav-item" data-label="Skipped" onclick="showPage('skipped',event)"><span class="nav-icon">⏭</span><span class="nav-label">Skipped</span><span class="nav-badge" id="badge-skipped">0</span></div>
   </nav>
 
   <main class="main">
+    <div id="page-loader">
+      <div class="spinner"></div>
+      <div class="loader-text">Loading jobs…</div>
+    </div>
+
+    <!-- Stats row -->
     <div class="stats-row">
       <div class="stat-card accent"><div class="stat-label">Total Found</div><div class="stat-value" id="s-total">—</div></div>
       <div class="stat-card green"><div class="stat-label">Auto Applied</div><div class="stat-value" id="s-applied">—</div></div>
       <div class="stat-card green"><div class="stat-label">Manually Applied</div><div class="stat-value" id="s-manually_applied">—</div></div>
       <div class="stat-card yellow"><div class="stat-label">Needs Manual</div><div class="stat-value" id="s-needs_manual">—</div></div>
+      <div class="stat-card purple"><div class="stat-label">Interviewing</div><div class="stat-value" id="s-interviewing">—</div></div>
       <div class="stat-card red"><div class="stat-label">Failed</div><div class="stat-value" id="s-failed">—</div></div>
     </div>
 
+    <!-- All Jobs -->
     <div class="page active" id="page-all">
       <div class="section-header">
         <span class="section-title">All Jobs</span>
-        <input class="search-box" id="search-all" placeholder="Search title or company…" oninput="filterTable('table-all', this.value)">
+        <input class="search-box" id="search-all" placeholder="Search title or company…" oninput="onSearch('table-all',this.value)">
         <button class="icon-btn" onclick="exportCSV('all')">⬇ CSV</button>
         <button class="icon-btn" onclick="loadAll()">↻ Refresh</button>
       </div>
+      <div class="filter-bar" id="filters-table-all"></div>
       <div id="table-all"></div>
     </div>
 
+    <!-- Needs Manual -->
     <div class="page" id="page-needs_manual">
       <div class="section-header">
         <span class="section-title">Needs Manual Application</span>
-        <input class="search-box" id="search-needs_manual" placeholder="Search…" oninput="filterTable('table-needs_manual', this.value)">
+        <input class="search-box" id="search-needs_manual" placeholder="Search…" oninput="onSearch('table-needs_manual',this.value)">
         <button class="icon-btn" onclick="exportCSV('needs_manual')">⬇ CSV</button>
         <button class="icon-btn" onclick="loadNeeds()">↻ Refresh</button>
       </div>
-      <p style="color:var(--text-dim);font-size:13px;margin-bottom:16px;">External career portals — click <strong style="color:var(--yellow)">Apply Now</strong>, then mark done.</p>
+      <p style="color:var(--text-dim);font-size:13px;margin-bottom:10px;">External career portals — click <strong style="color:var(--yellow)">Apply Now</strong>, then mark done.</p>
+      <div class="filter-bar" id="filters-table-needs_manual"></div>
       <div id="table-needs_manual"></div>
     </div>
 
+    <!-- Easy Applied -->
     <div class="page" id="page-applied">
       <div class="section-header">
         <span class="section-title">Easy Apply — Submitted</span>
-        <input class="search-box" id="search-applied" placeholder="Search…" oninput="filterTable('table-applied', this.value)">
+        <input class="search-box" id="search-applied" placeholder="Search…" oninput="onSearch('table-applied',this.value)">
         <button class="icon-btn" onclick="exportCSV('applied')">⬇ CSV</button>
         <button class="icon-btn" onclick="loadApplied()">↻ Refresh</button>
       </div>
+      <div class="filter-bar" id="filters-table-applied"></div>
       <div id="table-applied"></div>
     </div>
 
+    <!-- Manually Applied -->
     <div class="page" id="page-manually_applied">
       <div class="section-header">
         <span class="section-title">Manually Applied</span>
-        <input class="search-box" id="search-manually_applied" placeholder="Search…" oninput="filterTable('table-manually_applied', this.value)">
+        <input class="search-box" id="search-manually_applied" placeholder="Search…" oninput="onSearch('table-manually_applied',this.value)">
         <button class="icon-btn" onclick="exportCSV('manually_applied')">⬇ CSV</button>
         <button class="icon-btn" onclick="loadManually()">↻ Refresh</button>
       </div>
+      <div class="filter-bar" id="filters-table-manually_applied"></div>
       <div id="table-manually_applied"></div>
     </div>
 
+    <!-- Interviews -->
+    <div class="page" id="page-interviews">
+      <div class="section-header">
+        <span class="section-title">Interview Pipeline</span>
+        <button class="icon-btn" onclick="loadInterviews()">↻ Refresh</button>
+      </div>
+      <div class="pipeline">
+        <div class="pipeline-stage"><div class="pipeline-stage-label">📞 Phone Screen</div><div class="pipeline-stage-count" id="pc-phone">—</div></div>
+        <div class="pipeline-stage"><div class="pipeline-stage-label">💻 Technical</div><div class="pipeline-stage-count" id="pc-technical">—</div></div>
+        <div class="pipeline-stage"><div class="pipeline-stage-label">🏁 Final Round</div><div class="pipeline-stage-count" id="pc-final">—</div></div>
+        <div class="pipeline-stage"><div class="pipeline-stage-label">🎉 Offer</div><div class="pipeline-stage-count" id="pc-offer" style="color:var(--green)">—</div></div>
+        <div class="pipeline-stage"><div class="pipeline-stage-label">❌ Rejected</div><div class="pipeline-stage-count" id="pc-rejected" style="color:var(--red)">—</div></div>
+      </div>
+      <div class="filter-bar" id="filters-table-interviews"></div>
+      <div id="table-interviews"></div>
+    </div>
+
+    <!-- Analytics -->
+    <div class="page" id="page-analytics">
+      <div class="section-header">
+        <span class="section-title">Analytics</span>
+        <button class="icon-btn" onclick="loadAnalytics()">↻ Refresh</button>
+      </div>
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-title">Status Breakdown</div>
+          <canvas id="chart-status"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Applications Over Time (last 30 days)</div>
+          <canvas id="chart-timeline"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Top Companies</div>
+          <table class="company-table" id="chart-companies"></table>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Apply Method Split</div>
+          <canvas id="chart-methods"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Failed -->
     <div class="page" id="page-failed">
       <div class="section-header">
         <span class="section-title">Failed Applications</span>
-        <input class="search-box" id="search-failed" placeholder="Search…" oninput="filterTable('table-failed', this.value)">
+        <input class="search-box" id="search-failed" placeholder="Search…" oninput="onSearch('table-failed',this.value)">
         <button class="icon-btn" onclick="loadFailed()">↻ Refresh</button>
       </div>
       <div id="table-failed"></div>
     </div>
 
+    <!-- Skipped -->
     <div class="page" id="page-skipped">
       <div class="section-header">
         <span class="section-title">Skipped Jobs</span>
-        <input class="search-box" id="search-skipped" placeholder="Search…" oninput="filterTable('table-skipped', this.value)">
+        <input class="search-box" id="search-skipped" placeholder="Search…" oninput="onSearch('table-skipped',this.value)">
         <button class="icon-btn" onclick="loadSkipped()">↻ Refresh</button>
       </div>
       <div id="table-skipped"></div>
@@ -215,6 +424,59 @@
   </main>
 </div>
 
+<!-- Status dropdown -->
+<div id="status-dropdown">
+  <div class="sd-group">Application</div>
+  <div class="sd-option" data-status="discovered">🔍 Discovered</div>
+  <div class="sd-option" data-status="needs_manual">🖱 Needs Manual</div>
+  <div class="sd-option" data-status="applied">✅ Applied (Easy Apply)</div>
+  <div class="sd-option" data-status="manually_applied">📩 Manually Applied</div>
+  <hr class="sd-divider">
+  <div class="sd-group">Interview</div>
+  <div class="sd-option" data-status="interviewing">🎯 Interviewing</div>
+  <div class="sd-option" data-status="offer">🎉 Offer</div>
+  <div class="sd-option" data-status="rejected">❌ Rejected</div>
+  <hr class="sd-divider">
+  <div class="sd-group">Other</div>
+  <div class="sd-option" data-status="skipped">⏭ Skipped</div>
+  <div class="sd-option" data-status="not_relevant">🚫 Not Relevant Experience</div>
+  <div class="sd-option" data-status="expired">🕛 Expired</div>
+  <div class="sd-option" data-status="failed">⚠️ Failed</div>
+</div>
+
+<!-- Job Detail Modal -->
+<div class="modal-bg" id="job-detail-bg">
+  <div class="jd-modal">
+    <div class="jd-header">
+      <div style="display:flex;align-items:flex-start;gap:10px">
+        <div style="flex:1">
+          <div class="jd-title" id="jd-title"></div>
+          <div class="jd-company">
+            <span id="jd-company"></span>
+            <span id="jd-location" style="color:var(--muted)"></span>
+            <span id="jd-status-badge"></span>
+          </div>
+        </div>
+        <button class="jd-close" onclick="closeJobModal()">✕</button>
+      </div>
+      <div class="jd-dates" style="margin-top:12px" id="jd-dates"></div>
+    </div>
+    <div class="jd-body">
+      <div class="jd-meta" id="jd-meta"></div>
+      <div id="jd-desc-section" style="display:none">
+        <div class="jd-section-title">Description</div>
+        <div class="jd-description" id="jd-description"></div>
+      </div>
+      <div id="jd-notes-section" style="display:none">
+        <div class="jd-section-title">Notes</div>
+        <div class="jd-notes" id="jd-notes"></div>
+      </div>
+    </div>
+    <div class="jd-footer" id="jd-footer"></div>
+  </div>
+</div>
+
+<!-- Status modal -->
 <div class="modal-bg" id="modal-bg">
   <div class="modal">
     <h3>Update Job Status</h3>
@@ -223,260 +485,750 @@
     <input type="text" id="modal-job-title" readonly />
     <label>New Status</label>
     <select id="modal-status">
-      <option value="applied">applied</option>
-      <option value="manually_applied">manually_applied</option>
-      <option value="needs_manual">needs_manual</option>
-      <option value="discovered">discovered</option>
-      <option value="skipped">skipped</option>
-      <option value="failed">failed</option>
+      <optgroup label="Application">
+        <option value="discovered">discovered</option>
+        <option value="applied">applied (easy apply)</option>
+        <option value="needs_manual">needs manual</option>
+        <option value="manually_applied">manually applied</option>
+      </optgroup>
+      <optgroup label="Interview Pipeline">
+        <option value="interviewing">interviewing</option>
+        <option value="offer">offer</option>
+        <option value="rejected">rejected</option>
+      </optgroup>
+      <optgroup label="Other">
+        <option value="skipped">skipped</option>
+        <option value="not_relevant">not relevant experience</option>
+        <option value="expired">expired</option>
+        <option value="failed">failed</option>
+      </optgroup>
     </select>
     <label>Notes (optional)</label>
-    <textarea id="modal-notes" placeholder="e.g. Applied via portal, referral from Alice…"></textarea>
+    <textarea id="modal-notes" placeholder="e.g. Phone screen scheduled for Mon, referred by Alice…"></textarea>
     <div class="modal-actions">
       <button class="btn btn-muted" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-link" onclick="submitStatusUpdate()">Save</button>
+      <button class="btn btn-link" id="modal-save-btn" onclick="submitStatusUpdate()">Save</button>
+    </div>
+  </div>
+</div>
+<!-- Notes modal -->
+<div class="modal-bg" id="notes-modal-bg">
+  <div class="modal" style="width:460px">
+    <h3>Edit Notes</h3>
+    <input type="hidden" id="notes-modal-job-id">
+    <div id="notes-modal-job-label" style="font-size:13px;color:var(--text-dim);margin-bottom:14px"></div>
+    <textarea id="notes-modal-text" style="min-height:120px;font-size:13px;line-height:1.6" placeholder="e.g. Phone screen scheduled for Mon, referred by Alice…"></textarea>
+    <div class="modal-actions">
+      <button class="btn btn-muted" onclick="closeNotesModal()">Cancel</button>
+      <button class="btn btn-link" id="notes-modal-save-btn" onclick="submitNotesUpdate()">Save</button>
     </div>
   </div>
 </div>
 <div id="toast"></div>
 
 <script>
-  // ── State ─────────────────────────────────────────────────────────────────
-  const PAGE_SIZE   = 25;
-  let currentPage   = 'all';
-  const jobCache    = {};   // containerId → full job array
-  const sortState   = {};   // containerId → { col, dir }
-  const searchState = {};   // containerId → query string
-  const pageState   = {};   // containerId → current page index (0-based)
+// ── Global state ────────────────────────────────────────────────────────────
+const PAGE_SIZE    = 25;
+let   currentPage  = 'all';
+let   latestRunAt  = null;   // ISO string of the latest run's started_at
 
-  // ── Navigation ─────────────────────────────────────────────────────────────
-  function showPage(name, event) {
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    document.getElementById('page-' + name).classList.add('active');
-    if (event) event.currentTarget.classList.add('active');
-    currentPage = name;
-    loadPage(name);
-  }
-  function loadPage(name) {
-    ({ all: loadAll, needs_manual: loadNeeds, applied: loadApplied,
-       manually_applied: loadManually, failed: loadFailed, skipped: loadSkipped })[name]?.();
-  }
+const jobCache     = {};  // containerId → full jobs array
+const jobById      = {};  // id → job object (for modal lookup)
+const sortState    = {};  // containerId → { col, dir }
+const searchState  = {};  // containerId → query string
+const pageState    = {};  // containerId → page index (0-based)
+const companyFilter    = {};  // containerId → Set of selected companies (empty = all)
+const dateFetchedFilter= {};  // containerId → 'all' | 'today' | '7d' | '30d'
 
-  // ── Stats ──────────────────────────────────────────────────────────────────
-  async function loadStats() {
-    const s = await fetch('/api/stats').then(r => r.json());
-    ['total','applied','manually_applied','needs_manual','failed','skipped','discovered'].forEach(k => {
-      const el = document.getElementById('s-' + k); if (el) el.textContent = s[k] || 0;
-      const b  = document.getElementById('badge-' + k); if (b) b.textContent = s[k] || 0;
-    });
-    document.getElementById('badge-total').textContent = s.total || 0;
-  }
+// Chart instances (to destroy before re-render)
+const charts = {};
 
-  // ── Core render ───────────────────────────────────────────────────────────
-  // Single source of truth: reads jobCache/sortState/searchState/pageState
-  function _render(containerId) {
-    const container = document.getElementById(containerId);
-    const jobs  = jobCache[containerId] || [];
-    const state = sortState[containerId] || { col: 'date', dir: 'desc' };
-    const q     = (searchState[containerId] || '').toLowerCase().trim();
+// ── Navigation ───────────────────────────────────────────────────────────────
+function showPage(name, event) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  if (event) event.currentTarget.classList.add('active');
+  currentPage = name;
+  loadPage(name);
+}
+function loadPage(name) {
+  ({ all: loadAll, needs_manual: loadNeeds, applied: loadApplied,
+     manually_applied: loadManually, interviews: loadInterviews,
+     analytics: loadAnalytics, failed: loadFailed, skipped: loadSkipped })[name]?.();
+}
 
-    // 1. Sort
-    const sorted = _sortJobs(jobs, state.col, state.dir);
-    // 2. Filter
-    const filtered = q ? sorted.filter(j => (j.title + ' ' + j.company).toLowerCase().includes(q)) : sorted;
-    // 3. Paginate
-    const total      = filtered.length;
-    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    const pg         = Math.min(pageState[containerId] || 0, totalPages - 1);
-    pageState[containerId] = pg;
-    const slice      = filtered.slice(pg * PAGE_SIZE, (pg + 1) * PAGE_SIZE);
+// ── Stats ────────────────────────────────────────────────────────────────────
+async function loadStats() {
+  const s = await fetch('/api/stats').then(r => r.json());
+  ['total','applied','manually_applied','needs_manual','failed','skipped','discovered','interviewing','offer','rejected'].forEach(k => {
+    const el = document.getElementById('s-' + k); if (el) el.textContent = s[k] ?? 0;
+    const b  = document.getElementById('badge-' + k); if (b) b.textContent = s[k] ?? 0;
+  });
+  document.getElementById('badge-total').textContent = s.total ?? 0;
+}
 
-    if (!filtered.length) {
-      container.innerHTML = `<div class="empty"><div class="empty-icon">📭</div>${q ? 'No results for "'+escHtml(q)+'".' : 'No jobs here yet.'}</div>`;
-      return;
+async function loadLatestRun() {
+  const run = await fetch('/api/runs/latest').then(r => r.json());
+  latestRunAt = run.started_at || null;
+}
+
+// ── Core render ─────────────────────────────────────────────────────────────
+function _render(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const jobs   = jobCache[containerId] || [];
+  const state  = sortState[containerId]  || { col: 'date', dir: 'desc' };
+  const q      = (searchState[containerId] || '').toLowerCase().trim();
+  const coFilter = companyFilter[containerId] || new Set();
+
+  const sorted   = _sortJobs(jobs, state.col, state.dir);
+  const dfKey = dateFetchedFilter[containerId] || 'all';
+  const filtered = sorted.filter(j => {
+    const matchQ = !q || (j.title + ' ' + j.company).toLowerCase().includes(q);
+    const matchC = coFilter.size === 0 || coFilter.has(j.company);
+    let matchD = true;
+    if (dfKey !== 'all' && j.created_at) {
+      const created = new Date(j.created_at);
+      const now     = new Date();
+      const cutoff  = new Date(now);
+      if (dfKey === 'today') { cutoff.setHours(0,0,0,0); }
+      else if (dfKey === '7d')  { cutoff.setDate(cutoff.getDate() - 7);  cutoff.setHours(0,0,0,0); }
+      else if (dfKey === '30d') { cutoff.setDate(cutoff.getDate() - 30); cutoff.setHours(0,0,0,0); }
+      matchD = created >= cutoff;
     }
+    return matchQ && matchC && matchD;
+  });
 
-    const thClass = col => 'sortable' + (state.col === col ? ' sort-' + state.dir : '');
+  const total      = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pg         = Math.min(pageState[containerId] || 0, totalPages - 1);
+  pageState[containerId] = pg;
+  const slice      = filtered.slice(pg * PAGE_SIZE, (pg + 1) * PAGE_SIZE);
 
-    const rows = slice.map(j => {
-      const dateVal     = j.applied_at || j.created_at || '';
-      const dateDisplay = dateVal ? new Date(dateVal).toLocaleDateString('en-IN', {day:'numeric',month:'short',year:'2-digit'}) : '—';
-      const linkedinLink  = j.linkedin_url  ? `<a href="${j.linkedin_url}"  target="_blank" style="font-size:11px;color:var(--text-dim)">LinkedIn ↗</a>` : '';
-      const externalLink  = j.external_url  ? `<a href="${j.external_url}" target="_blank" class="btn btn-yellow" style="margin-right:6px">Apply Now ↗</a>` : '';
-      const markDoneBtn   = j.status === 'needs_manual' ? `<button class="btn btn-green" onclick="quickMarkDone('${j.id}',event)">Mark Done</button>` : '';
-      const editBtn       = `<button class="btn btn-muted" onclick="openModal('${j.id}','${escHtml(j.title)} @ ${escHtml(j.company)}','${j.status}')">Edit</button>`;
-      return `<tr>
-        <td class="td-title">${escHtml(j.title)}<br><span style="font-size:11px;color:var(--text-dim)">${linkedinLink}</span></td>
+  if (!filtered.length) {
+    container.innerHTML = `<div class="empty"><div class="empty-icon">📭</div>${q ? 'No results for "' + escHtml(q) + '".' : 'No jobs here yet.'}</div>`;
+    return;
+  }
+
+  const thCls = col => 'sortable' + (state.col === col ? ' sort-' + state.dir : '');
+
+  const rows = slice.map(j => {
+    const isNew      = latestRunAt && j.created_at >= latestRunAt;
+    const newDot     = isNew ? '<span class="new-dot" title="New this run"></span>' : '';
+    const newCls     = isNew ? ' new-job' : '';
+    const dateVal    = j.applied_at || j.created_at || '';
+    const dateStr    = dateVal ? new Date(dateVal).toLocaleDateString('en-IN', {day:'numeric',month:'short',year:'2-digit'}) : '—';
+    const liBtn   = j.linkedin_url ? `<a href="${j.linkedin_url}" target="_blank" class="btn btn-link" style="font-size:11px;padding:4px 10px" onclick="event.stopPropagation()">Apply ↗</a>` : '<span style="color:var(--muted);font-size:11px">—</span>';
+    const extLink = j.external_url ? `<a href="${j.external_url}" target="_blank" class="btn btn-yellow" onclick="event.stopPropagation()">Apply Now ↗</a>` : '';
+
+    return `<tr class="job-row${newCls}" onclick="openJobModal('${j.id}')">
+        <td class="td-title">${newDot}${escHtml(j.title)}</td>
         <td class="td-company">${escHtml(j.company)}</td>
         <td style="font-size:12px;color:var(--text-dim)">${escHtml(j.location||'')}</td>
-        <td><span class="badge badge-${j.status}">${j.status.replace(/_/g,' ')}</span></td>
-        <td style="font-size:12px;color:var(--text-dim);white-space:nowrap">${dateDisplay}</td>
-        <td class="td-actions">${externalLink}${markDoneBtn} ${editBtn}</td>
+        <td onclick="event.stopPropagation()"><span class="badge badge-${j.status} clickable" onclick="openStatusDropdown('${j.id}','${j.status}',this)">${j.status.replace(/_/g,' ')} ▾</span></td>
+        <td style="font-size:12px;color:var(--text-dim);white-space:nowrap">${dateStr}</td>
+        <td style="max-width:180px" onclick="event.stopPropagation()"><span class="notes-cell" onclick="openNotesModal('${j.id}')" title="Click to edit notes">${j.notes ? escHtml(j.notes.length > 50 ? j.notes.slice(0,50)+'…' : j.notes) : '<span class="notes-empty">+ Add note</span>'}</span></td>
+        <td onclick="event.stopPropagation()">${liBtn}</td>
+        <td class="td-actions" onclick="event.stopPropagation()">${extLink}</td>
       </tr>`;
+  }).join('');
+
+  const start = pg * PAGE_SIZE + 1;
+  const end   = Math.min((pg + 1) * PAGE_SIZE, total);
+  const pagination = _buildPagination(containerId, pg, totalPages, start, end, total);
+
+  container.innerHTML = `<div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th class="${thCls('title')}"    onclick="onSort('${containerId}','title')">Job Title<i class="sort-icon"></i></th>
+        <th class="${thCls('company')}"  onclick="onSort('${containerId}','company')">Company<i class="sort-icon"></i></th>
+        <th class="${thCls('location')}" onclick="onSort('${containerId}','location')">Location<i class="sort-icon"></i></th>
+        <th class="${thCls('status')}"   onclick="onSort('${containerId}','status')">Status<i class="sort-icon"></i></th>
+        <th class="${thCls('date')}"     onclick="onSort('${containerId}','date')">Date<i class="sort-icon"></i></th>
+        <th>Notes</th>
+        <th>LinkedIn</th>
+        <th>External</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    ${pagination}
+  </div>`;
+}
+
+function _buildDetailPanel(j) {
+  const salary    = j.salary         ? `<div class="dp-section"><div class="dp-label">Salary</div><div class="dp-value">${escHtml(j.salary)}</div></div>` : '';
+  const wtype     = j.workplace_type ? `<div class="dp-section"><div class="dp-label">Workplace</div><div class="dp-value">${escHtml(j.workplace_type)}</div></div>` : '';
+  const method    = `<div class="dp-section"><div class="dp-label">Apply Method</div><div class="dp-value">${escHtml(j.apply_method||'')}</div></div>`;
+  const posted    = j.created_at     ? `<div class="dp-section"><div class="dp-label">Discovered</div><div class="dp-value">${new Date(j.created_at).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'})}</div></div>` : '';
+  const applied   = j.applied_at     ? `<div class="dp-section"><div class="dp-label">Applied At</div><div class="dp-value">${new Date(j.applied_at).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'})}</div></div>` : '';
+  const notes    = j.notes       ? `<div class="dp-section" style="grid-column:1/-1"><div class="dp-label">Notes</div><div class="dp-value">${escHtml(j.notes)}</div></div>` : '';
+  const desc     = j.description ? `<div class="dp-section" style="grid-column:1/-1"><div class="dp-label">Description</div><div class="dp-value" style="white-space:pre-wrap;max-height:220px;overflow-y:auto;font-size:12px;line-height:1.6;color:var(--text-dim)">${escHtml(j.description)}</div></div>` : '';
+  const extLink  = j.external_url ? `<a href="${j.external_url}" target="_blank" class="btn btn-yellow">Apply on Company Site ↗</a>` : '';
+  const liLink   = j.linkedin_url ? `<a href="${j.linkedin_url}" target="_blank" class="btn btn-muted">View on LinkedIn ↗</a>` : '';
+  return `<div class="detail-panel">${salary}${wtype}${method}${posted}${applied}${notes}${desc}
+    <div class="dp-section" style="grid-column:1/-1"><div class="detail-actions">${extLink}${liLink}</div></div>
+  </div>`;
+}
+
+function toggleDetail(rowId, job) {
+  const row = document.getElementById(rowId);
+  if (!row) return;
+  // Build detail panel lazily on first open
+  if (!row.dataset.loaded) {
+    row.querySelector('td').innerHTML = _buildDetailPanel(job);
+    row.dataset.loaded = '1';
+  }
+  row.classList.toggle('open');
+}
+
+// ── Filter bar ───────────────────────────────────────────────────────────────
+let _openDropdown = null; // containerId of currently open company dropdown
+
+function _buildCompanyChips(containerId) {
+  const bar = document.getElementById('filters-' + containerId);
+  if (!bar) return;
+  const jobs = jobCache[containerId] || [];
+  const dfKey = dateFetchedFilter[containerId] || 'all';
+  const sel   = companyFilter[containerId] || new Set();
+  const companies = [...new Set(jobs.map(j => j.company).filter(Boolean))].sort();
+
+  // ── Segmented date toggle ─────────────────────────────────────────────────
+  const dfOpts = [['all','All'],['today','Today'],['7d','7 days'],['30d','30 days']];
+  const segs = dfOpts.map(([k,label]) =>
+    `<button class="seg-btn${dfKey===k?' active':''}" onclick="setDateFetchedFilter('${containerId}','${k}')">${label}</button>`
+  ).join('');
+  const datePart = `<span class="filter-label">Fetched:</span><div class="seg-group">${segs}</div>`;
+
+  // ── Company dropdown ──────────────────────────────────────────────────────
+  let companyPart = '';
+  if (companies.length > 0) {
+    const count    = sel.size;
+    const btnLabel = count ? `Company <span class="fdb-count">${count}</span> ▾` : `Company ▾`;
+    const hasSel   = count > 0 ? 'has-selection' : '';
+
+    const listItems = companies.map(c => {
+      const chk = sel.has(c) ? 'checked' : '';
+      return `<label class="fdp-item">
+        <input type="checkbox" ${chk} onchange="toggleCompanyFilter('${containerId}','${escAttr(c)}')">
+        ${escHtml(c)}
+      </label>`;
     }).join('');
 
-    const start = pg * PAGE_SIZE + 1;
-    const end   = Math.min((pg + 1) * PAGE_SIZE, total);
-    const paginationHtml = _buildPagination(containerId, pg, totalPages, start, end, total);
-
-    container.innerHTML = `<div class="table-wrap">
-      <table>
-        <thead><tr>
-          <th class="${thClass('title')}"  onclick="onSort('${containerId}','title')">Job Title<i class="sort-icon"></i></th>
-          <th class="${thClass('company')}" onclick="onSort('${containerId}','company')">Company<i class="sort-icon"></i></th>
-          <th class="${thClass('location')}" onclick="onSort('${containerId}','location')">Location<i class="sort-icon"></i></th>
-          <th class="${thClass('status')}"  onclick="onSort('${containerId}','status')">Status<i class="sort-icon"></i></th>
-          <th class="${thClass('date')}"    onclick="onSort('${containerId}','date')">Date<i class="sort-icon"></i></th>
-          <th>Actions</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      ${paginationHtml}
+    companyPart = `<div class="filter-dropdown-wrap" id="fdw-${containerId}">
+      <div class="filter-dropdown-btn ${hasSel}" onclick="toggleFilterDropdown('${containerId}')">${btnLabel}</div>
+      <div class="filter-dropdown-panel${_openDropdown===containerId?' open':''}" id="fdp-${containerId}">
+        <div class="fdp-search"><input placeholder="Search companies…" oninput="filterDropdownSearch('${containerId}',this.value)"></div>
+        <div class="fdp-list" id="fdp-list-${containerId}">
+          <label class="fdp-item fdp-all">
+            <input type="checkbox" ${count===0?'checked':''} onchange="clearCompanyFilter('${containerId}')"> All companies
+          </label>
+          ${listItems}
+        </div>
+        <div class="fdp-footer">
+          <span>${companies.length} companies</span>
+          ${count ? `<span class="fdp-clear" onclick="clearCompanyFilter('${containerId}')">Clear</span>` : ''}
+        </div>
+      </div>
     </div>`;
   }
 
-  function _buildPagination(containerId, pg, totalPages, start, end, total) {
-    if (totalPages <= 1) return '';
-    const btn = (i, label, disabled, active) =>
-      `<button class="pg-btn${active?' active':''}" ${disabled?'disabled':''} onclick="goToPage('${containerId}',${i})">${label}</button>`;
+  // ── Clear-all badge ───────────────────────────────────────────────────────
+  const anyFilter = dfKey !== 'all' || sel.size > 0;
+  const clearAll  = anyFilter
+    ? `<button class="filter-clear-all" onclick="clearAllFilters('${containerId}')">✕ Clear filters</button>`
+    : '';
 
-    // Build page number list with ellipsis
-    const pages = [];
-    for (let i = 0; i < totalPages; i++) {
-      if (i === 0 || i === totalPages-1 || (i >= pg-1 && i <= pg+1)) pages.push(i);
-      else if (pages[pages.length-1] !== '…') pages.push('…');
+  bar.innerHTML = datePart + companyPart + clearAll;
+}
+
+function toggleFilterDropdown(containerId) {
+  const panel = document.getElementById('fdp-' + containerId);
+  if (!panel) return;
+  const isOpen = panel.classList.contains('open');
+  // Close any other open dropdown
+  if (_openDropdown && _openDropdown !== containerId) {
+    const other = document.getElementById('fdp-' + _openDropdown);
+    if (other) other.classList.remove('open');
+  }
+  panel.classList.toggle('open', !isOpen);
+  _openDropdown = !isOpen ? containerId : null;
+  if (!isOpen) {
+    // focus search
+    const input = panel.querySelector('input[type=text], input:not([type=checkbox])');
+    if (input) setTimeout(() => input.focus(), 50);
+  }
+}
+
+function filterDropdownSearch(containerId, query) {
+  const list = document.getElementById('fdp-list-' + containerId);
+  if (!list) return;
+  const q = query.toLowerCase();
+  list.querySelectorAll('.fdp-item:not(.fdp-all)').forEach(el => {
+    el.style.display = el.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', e => {
+  if (!_openDropdown) return;
+  const wrap = document.getElementById('fdw-' + _openDropdown);
+  if (wrap && !wrap.contains(e.target)) {
+    const panel = document.getElementById('fdp-' + _openDropdown);
+    if (panel) panel.classList.remove('open');
+    _openDropdown = null;
+  }
+});
+
+function clearAllFilters(containerId) {
+  dateFetchedFilter[containerId] = 'all';
+  companyFilter[containerId] = new Set();
+  pageState[containerId] = 0;
+  _render(containerId);
+  _buildCompanyChips(containerId);
+}
+
+function setDateFetchedFilter(containerId, key) {
+  dateFetchedFilter[containerId] = key;
+  pageState[containerId] = 0;
+  _render(containerId);
+  _buildCompanyChips(containerId);
+}
+
+function toggleCompanyFilter(containerId, company) {
+  if (!companyFilter[containerId]) companyFilter[containerId] = new Set();
+  const s = companyFilter[containerId];
+  s.has(company) ? s.delete(company) : s.add(company);
+  pageState[containerId] = 0;
+  _render(containerId);
+  _buildCompanyChips(containerId);
+}
+
+function clearCompanyFilter(containerId) {
+  companyFilter[containerId] = new Set();
+  pageState[containerId] = 0;
+  _render(containerId);
+  _buildCompanyChips(containerId);
+}
+
+// ── Sort ─────────────────────────────────────────────────────────────────────
+function _sortJobs(jobs, col, dir) {
+  return [...jobs].sort((a, b) => {
+    let av, bv;
+    if (col === 'date') {
+      av = new Date(a.applied_at || a.created_at || 0).getTime();
+      bv = new Date(b.applied_at || b.created_at || 0).getTime();
+    } else {
+      av = (a[col] || '').toLowerCase();
+      bv = (b[col] || '').toLowerCase();
     }
+    if (av < bv) return dir === 'asc' ? -1 : 1;
+    if (av > bv) return dir === 'asc' ?  1 : -1;
+    return 0;
+  });
+}
+function onSort(containerId, col) {
+  const s = sortState[containerId] || { col: 'date', dir: 'desc' };
+  sortState[containerId] = { col, dir: s.col === col && s.dir === 'asc' ? 'desc' : 'asc' };
+  pageState[containerId] = 0;
+  _render(containerId);
+}
 
-    const pageButtons = pages.map(i =>
-      i === '…' ? `<span class="pg-ellipsis">…</span>` : btn(i, i+1, false, i===pg)
-    ).join('');
+// ── Search ───────────────────────────────────────────────────────────────────
+function onSearch(containerId, query) {
+  searchState[containerId] = query;
+  pageState[containerId]   = 0;
+  _render(containerId);
+}
 
-    return `<div class="pagination">
-      <span class="pagination-info">Showing ${start}–${end} of ${total}</span>
-      ${btn(pg-1, '← Prev', pg===0, false)}
-      ${pageButtons}
-      ${btn(pg+1, 'Next →', pg===totalPages-1, false)}
-    </div>`;
+// ── Pagination ───────────────────────────────────────────────────────────────
+function goToPage(containerId, pg) {
+  pageState[containerId] = pg;
+  _render(containerId);
+}
+function _buildPagination(containerId, pg, totalPages, start, end, total) {
+  if (totalPages <= 1) return '';
+  const btn = (i, label, disabled, active) =>
+    `<button class="pg-btn${active?' active':''}" ${disabled?'disabled':''} onclick="goToPage('${containerId}',${i})">${label}</button>`;
+  const pages = [];
+  for (let i = 0; i < totalPages; i++) {
+    if (i === 0 || i === totalPages-1 || (i >= pg-1 && i <= pg+1)) pages.push(i);
+    else if (pages[pages.length-1] !== '…') pages.push('…');
   }
+  const pageButtons = pages.map(i => i === '…' ? `<span class="pg-ellipsis">…</span>` : btn(i, i+1, false, i===pg)).join('');
+  return `<div class="pagination">
+    <span class="pagination-info">Showing ${start}–${end} of ${total}</span>
+    ${btn(pg-1,'← Prev',pg===0,false)}
+    ${pageButtons}
+    ${btn(pg+1,'Next →',pg===totalPages-1,false)}
+  </div>`;
+}
 
-  // ── Sort ──────────────────────────────────────────────────────────────────
-  function _sortJobs(jobs, col, dir) {
-    return [...jobs].sort((a, b) => {
-      let av, bv;
-      if (col === 'date') {
-        av = new Date(a.applied_at || a.created_at || 0).getTime();
-        bv = new Date(b.applied_at || b.created_at || 0).getTime();
-      } else {
-        av = (a[col] || '').toLowerCase();
-        bv = (b[col] || '').toLowerCase();
-      }
-      if (av < bv) return dir === 'asc' ? -1 : 1;
-      if (av > bv) return dir === 'asc' ?  1 : -1;
-      return 0;
-    });
-  }
-  function onSort(containerId, col) {
-    const state = sortState[containerId] || { col: 'date', dir: 'desc' };
-    sortState[containerId] = { col, dir: state.col === col && state.dir === 'asc' ? 'desc' : 'asc' };
-    pageState[containerId] = 0;
-    _render(containerId);
-  }
+// ── Loaders ──────────────────────────────────────────────────────────────────
+function renderTable(containerId, jobs) {
+  jobCache[containerId]  = jobs;
+  pageState[containerId] = 0;
+  jobs.forEach(j => { jobById[j.id] = j; });
+  _buildCompanyChips(containerId);
+  _render(containerId);
+}
+async function fetchJobs(status, limit=100) {
+  const url = status ? `/api/jobs?status=${status}&limit=${limit}` : `/api/jobs?limit=${limit}`;
+  return fetch(url).then(r => r.json());
+}
+async function loadAll()      { renderTable('table-all',              await fetchJobs(null)); }
+async function loadNeeds()    { renderTable('table-needs_manual',     await fetchJobs('needs_manual')); }
+async function loadApplied()  { renderTable('table-applied',          await fetchJobs('applied')); }
+async function loadManually() { renderTable('table-manually_applied', await fetchJobs('manually_applied')); }
+async function loadFailed()   { renderTable('table-failed',           await fetchJobs('failed')); }
+async function loadSkipped()  { renderTable('table-skipped',          await fetchJobs('skipped')); }
 
-  // ── Pagination nav ────────────────────────────────────────────────────────
-  function goToPage(containerId, pg) {
-    pageState[containerId] = pg;
-    _render(containerId);
-  }
+async function loadInterviews() {
+  const jobs = await fetchJobs(null, 200);
+  const stages = ['interviewing','offer','rejected'];
+  const stageJobs = jobs.filter(j => stages.includes(j.status));
+  renderTable('table-interviews', stageJobs);
 
-  // ── Search ────────────────────────────────────────────────────────────────
-  function filterTable(containerId, query) {
-    searchState[containerId] = query;
-    pageState[containerId]   = 0;
-    _render(containerId);
-  }
+  // Count per stage
+  const counts = { interviewing: 0, offer: 0, rejected: 0 };
+  stageJobs.forEach(j => { if (counts[j.status] !== undefined) counts[j.status]++; });
+  // Split interviewing into phone/technical/final by notes keywords (best-effort)
+  document.getElementById('pc-phone').textContent     = counts.interviewing;
+  document.getElementById('pc-technical').textContent = '—';
+  document.getElementById('pc-final').textContent     = '—';
+  document.getElementById('pc-offer').textContent     = counts.offer;
+  document.getElementById('pc-rejected').textContent  = counts.rejected;
+}
 
-  // ── Loaders ────────────────────────────────────────────────────────────────
-  function renderTable(containerId, jobs) {
-    jobCache[containerId]  = jobs;
-    pageState[containerId] = 0;
-    _render(containerId);
-  }
-  async function fetchJobs(status, limit=500) {
-    const url = status ? `/api/jobs?status=${status}&limit=${limit}` : `/api/jobs?limit=${limit}`;
-    return fetch(url).then(r => r.json());
-  }
-  async function loadAll()      { renderTable('table-all',              await fetchJobs(null)); }
-  async function loadNeeds()    { renderTable('table-needs_manual',     await fetchJobs('needs_manual')); }
-  async function loadApplied()  { renderTable('table-applied',          await fetchJobs('applied')); }
-  async function loadManually() { renderTable('table-manually_applied', await fetchJobs('manually_applied')); }
-  async function loadFailed()   { renderTable('table-failed',           await fetchJobs('failed')); }
-  async function loadSkipped()  { renderTable('table-skipped',          await fetchJobs('skipped')); }
+// ── Analytics ────────────────────────────────────────────────────────────────
+async function loadAnalytics() {
+  const [stats, jobs] = await Promise.all([
+    fetch('/api/stats').then(r => r.json()),
+    fetchJobs(null, 2000),
+  ]);
 
-  // ── CSV export ─────────────────────────────────────────────────────────────
-  function exportCSV(status) {
-    const key  = status === 'all' ? 'table-all' : `table-${status}`;
-    const jobs = jobCache[key] || [];
-    if (!jobs.length) { toast('No jobs to export'); return; }
-    const headers = ['title','company','location','status','apply_method','linkedin_url','external_url','applied_at','notes'];
-    const rows    = jobs.map(j => headers.map(h => `"${(j[h]||'').toString().replace(/"/g,'""')}"`).join(','));
-    const csv     = [headers.join(','), ...rows].join('\n');
-    const a = document.createElement('a');
-    a.href     = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
-    a.download = `jobs_${status}_${new Date().toISOString().slice(0,10)}.csv`;
-    a.click();
-    toast(`Exported ${jobs.length} jobs ✓`);
-  }
+  _renderStatusChart(stats);
+  _renderTimelineChart(jobs);
+  _renderCompanyTable(jobs);
+  _renderMethodChart(jobs);
+}
 
-  // ── Quick mark done ────────────────────────────────────────────────────────
-  async function quickMarkDone(jobId, e) {
-    e.stopPropagation();
-    await updateStatus(jobId, 'manually_applied');
-    toast('Marked as manually applied ✓');
-    loadPage(currentPage);
-    loadStats();
-  }
+function _renderStatusChart(stats) {
+  const labels = ['Applied','Manually Applied','Needs Manual','Interviewing','Offer','Rejected','Failed','Skipped'];
+  const keys   = ['applied','manually_applied','needs_manual','interviewing','offer','rejected','failed','skipped'];
+  const data   = keys.map(k => stats[k] || 0);
+  const colors = ['#22c55e','#4ade80','#f59e0b','#a855f7','#86efac','#f87171','#ef4444','#6b7280'];
+  _drawDoughnut('chart-status', labels, data, colors);
+}
 
-  // ── Status modal ───────────────────────────────────────────────────────────
-  function openModal(jobId, title, currentStatus) {
-    document.getElementById('modal-job-id').value    = jobId;
-    document.getElementById('modal-job-title').value = title;
-    document.getElementById('modal-status').value    = currentStatus;
-    document.getElementById('modal-notes').value     = '';
-    document.getElementById('modal-bg').classList.add('open');
+function _renderTimelineChart(jobs) {
+  const now = new Date();
+  const days = {};
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(now); d.setDate(d.getDate() - i);
+    days[d.toISOString().slice(0,10)] = 0;
   }
-  function closeModal() { document.getElementById('modal-bg').classList.remove('open'); }
-  async function submitStatusUpdate() {
+  jobs.forEach(j => {
+    const key = (j.created_at || '').slice(0,10);
+    if (key in days) days[key]++;
+  });
+  const labels = Object.keys(days).map(d => d.slice(5)); // MM-DD
+  const data   = Object.values(days);
+  _destroyChart('chart-timeline');
+  charts['chart-timeline'] = new Chart(document.getElementById('chart-timeline'), {
+    type: 'bar',
+    data: { labels, datasets: [{ label: 'Jobs Found', data, backgroundColor: '#6366f180', borderColor: '#818cf8', borderWidth: 1 }] },
+    options: { responsive: true, plugins: { legend: { display: false } }, scales: {
+      x: { ticks: { color: '#94a3b8', maxTicksLimit: 8 }, grid: { color: '#2e3147' } },
+      y: { ticks: { color: '#94a3b8' }, grid: { color: '#2e3147' }, beginAtZero: true },
+    }},
+  });
+}
+
+function _renderCompanyTable(jobs) {
+  const counts = {};
+  jobs.forEach(j => { counts[j.company] = (counts[j.company] || 0) + 1; });
+  const sorted = Object.entries(counts).sort((a,b) => b[1]-a[1]).slice(0, 10);
+  const el = document.getElementById('chart-companies');
+  el.innerHTML = sorted.map(([c,n]) =>
+    `<tr><td style="color:var(--text)">${escHtml(c)}</td><td>${n}</td></tr>`
+  ).join('');
+}
+
+function _renderMethodChart(jobs) {
+  const ea = jobs.filter(j => j.apply_method === 'easy_apply').length;
+  const ex = jobs.filter(j => j.apply_method === 'external').length;
+  _drawDoughnut('chart-methods', ['Easy Apply','External'], [ea, ex], ['#6366f1','#f59e0b']);
+}
+
+function _drawDoughnut(canvasId, labels, data, colors) {
+  _destroyChart(canvasId);
+  charts[canvasId] = new Chart(document.getElementById(canvasId), {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data, backgroundColor: colors.map(c => c + 'cc'), borderColor: colors, borderWidth: 1 }] },
+    options: { responsive: true, plugins: {
+      legend: { position: 'bottom', labels: { color: '#94a3b8', font: { size: 11 }, padding: 12 } },
+    }},
+  });
+}
+function _destroyChart(id) {
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+}
+
+// ── CSV export ───────────────────────────────────────────────────────────────
+function exportCSV(status) {
+  const key  = status === 'all' ? 'table-all' : `table-${status}`;
+  const jobs = jobCache[key] || [];
+  if (!jobs.length) { toast('No jobs to export'); return; }
+  const headers = ['title','company','location','status','apply_method','salary','linkedin_url','external_url','applied_at','notes'];
+  const rows    = jobs.map(j => headers.map(h => `"${(j[h]||'').toString().replace(/"/g,'""')}"`).join(','));
+  const csv     = [headers.join(','), ...rows].join('\n');
+  const a = document.createElement('a');
+  a.href     = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+  a.download = `jobs_${status}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  toast(`Exported ${jobs.length} jobs ✓`);
+}
+
+// ── Quick mark done ──────────────────────────────────────────────────────────
+async function quickMarkDone(jobId, e) {
+  if (e) e.stopPropagation();
+  _applyStatusToCache(jobId, 'manually_applied');  // instant UI update
+  updateStatus(jobId, 'manually_applied');          // fire-and-forget to server
+  toast('Marked as manually applied ✓');
+  loadStats();
+}
+
+// ── Status modal ─────────────────────────────────────────────────────────────
+function openModal(jobId, title, status) {
+  document.getElementById('modal-job-id').value    = jobId;
+  document.getElementById('modal-job-title').value = title;
+  document.getElementById('modal-status').value    = status;
+  document.getElementById('modal-notes').value     = '';
+  document.getElementById('modal-bg').classList.add('open');
+}
+function closeModal() { document.getElementById('modal-bg').classList.remove('open'); }
+async function submitStatusUpdate() {
+  const btn = document.getElementById('modal-save-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  try {
     const jobId  = document.getElementById('modal-job-id').value;
     const status = document.getElementById('modal-status').value;
     const notes  = document.getElementById('modal-notes').value;
-    await updateStatus(jobId, status, notes);
+    _applyStatusToCache(jobId, status, notes);  // instant UI update
+    updateStatus(jobId, status, notes);          // fire-and-forget to server
     closeModal(); toast('Status updated ✓');
-    loadPage(currentPage); loadStats();
+    loadStats();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save';
   }
-  async function updateStatus(jobId, status, notes='') {
-    await fetch(`/api/jobs/${jobId}/status`, {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({status, notes}),
-    });
+}
+async function updateStatus(jobId, status, notes='') {
+  await fetch(`/api/jobs/${jobId}/status`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ status, notes }),
+  });
+}
+
+// ── Status dropdown ──────────────────────────────────────────────────────────
+let _sdJobId = null;
+const _sd = document.getElementById('status-dropdown');
+
+function openStatusDropdown(jobId, currentStatus, anchorEl) {
+  _sdJobId = jobId;
+
+  // Mark current
+  _sd.querySelectorAll('.sd-option').forEach(el => {
+    el.classList.toggle('current', el.dataset.status === currentStatus);
+  });
+
+  // Position below the badge
+  const rect = anchorEl.getBoundingClientRect();
+  const spaceBelow = window.innerHeight - rect.bottom;
+  _sd.style.left = rect.left + 'px';
+  if (spaceBelow < 260) {
+    _sd.style.top  = '';
+    _sd.style.bottom = (window.innerHeight - rect.top) + 4 + 'px';
+  } else {
+    _sd.style.bottom = '';
+    _sd.style.top  = rect.bottom + 4 + 'px';
+  }
+  _sd.classList.add('open');
+}
+
+function closeStatusDropdown() { _sd.classList.remove('open'); _sdJobId = null; }
+
+// Patch local cache and re-render immediately (optimistic update)
+function _applyStatusToCache(jobId, status, notes) {
+  const j = jobById[jobId];
+  if (!j) return;
+  j.status = status;
+  if (notes !== undefined) j.notes = notes;
+  Object.keys(jobCache).forEach(cid => {
+    if (jobCache[cid].some(job => job.id == jobId)) {
+      _buildCompanyChips(cid);
+      _render(cid);
+    }
+  });
+}
+
+_sd.querySelectorAll('.sd-option').forEach(el => {
+  el.addEventListener('click', async () => {
+    if (!_sdJobId) return;
+    const jobId  = _sdJobId;          // capture before closeStatusDropdown nulls it
+    const status = el.dataset.status;
+    closeStatusDropdown();
+    _applyStatusToCache(jobId, status);   // instant UI update
+    updateStatus(jobId, status);          // fire-and-forget to server
+    toast('Status updated ✓');
+    loadStats();
+  });
+});
+
+document.addEventListener('click', e => {
+  if (_sd.classList.contains('open') && !_sd.contains(e.target)) closeStatusDropdown();
+});
+
+// ── Job Detail Modal ─────────────────────────────────────────────────────────
+let _openJob = null;
+
+function openJobModal(idOrJob) {
+  const j = (typeof idOrJob === 'string') ? jobById[idOrJob] : idOrJob;
+  if (!j) return;
+  _openJob = j;
+  const fmt = (iso) => iso ? new Date(iso).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : null;
+  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
+
+  document.getElementById('jd-title').textContent   = j.title || '';
+  document.getElementById('jd-company').textContent = j.company || '';
+  document.getElementById('jd-location').textContent = j.location || '';
+  document.getElementById('jd-status-badge').innerHTML = `<span class="badge badge-${j.status}">${j.status.replace(/_/g,' ')}</span>`;
+
+  // Dates row
+  const dates = [
+    j.posted_at   && { label: 'Job Posted',  value: fmtDate(j.posted_at)  },
+    j.created_at  && { label: 'Fetched',     value: fmt(j.created_at)     },
+    j.applied_at  && { label: 'Applied',     value: fmt(j.applied_at)     },
+  ].filter(Boolean);
+  document.getElementById('jd-dates').innerHTML = dates.map(d =>
+    `<div class="jd-date-item"><div class="jd-date-label">${d.label}</div><div class="jd-date-value">${d.value}</div></div>`
+  ).join('');
+
+  // Meta grid
+  const meta = [
+    j.workplace_type && { label: 'Workplace',     value: j.workplace_type.replace(/_/g,' ') },
+    j.job_type       && { label: 'Job Type',      value: j.job_type.replace(/_/g,' ')       },
+    j.apply_method   && { label: 'Apply Method',  value: j.apply_method.replace(/_/g,' ')   },
+    j.salary         && { label: 'Salary',        value: j.salary                            },
+  ].filter(Boolean);
+  document.getElementById('jd-meta').innerHTML = meta.map(m =>
+    `<div class="jd-meta-item"><div class="jd-meta-label">${m.label}</div><div class="jd-meta-value">${escHtml(m.value)}</div></div>`
+  ).join('');
+
+  // Description
+  const descSec = document.getElementById('jd-desc-section');
+  if (j.description) {
+    document.getElementById('jd-description').textContent = j.description;
+    descSec.style.display = '';
+  } else {
+    descSec.style.display = 'none';
   }
 
-  // ── Toast ──────────────────────────────────────────────────────────────────
-  function toast(msg) {
-    const el = document.getElementById('toast');
-    el.textContent = msg; el.classList.add('show');
-    setTimeout(() => el.classList.remove('show'), 2500);
+  // Notes
+  const notesSec = document.getElementById('jd-notes-section');
+  if (j.notes) {
+    document.getElementById('jd-notes').textContent = j.notes;
+    notesSec.style.display = '';
+  } else {
+    notesSec.style.display = 'none';
   }
 
-  // ── Utils ──────────────────────────────────────────────────────────────────
-  function escHtml(str) {
-    return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-  document.getElementById('modal-bg').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
+  // Footer actions
+  const extLink = j.external_url ? `<a href="${j.external_url}" target="_blank" class="btn btn-yellow">Apply on Company Site ↗</a>` : '';
+  const liLink  = j.linkedin_url ? `<a href="${j.linkedin_url}" target="_blank" class="btn btn-muted">View on LinkedIn ↗</a>` : '';
+  document.getElementById('jd-footer').innerHTML =
+    extLink + liLink +
+    `<span class="badge badge-${j.status} clickable" style="margin-left:auto" id="jd-status-badge-btn">${j.status.replace(/_/g,' ')} ▾</span>`;
+  document.getElementById('jd-status-badge-btn').addEventListener('click', e => {
+    e.stopPropagation();
+    openStatusDropdown(j.id, j.status, e.currentTarget);
+  });
 
-  // ── Init ───────────────────────────────────────────────────────────────────
-  loadStats();
-  loadAll();
+  document.getElementById('job-detail-bg').classList.add('open');
+}
+function closeJobModal() {
+  document.getElementById('job-detail-bg').classList.remove('open');
+}
+document.getElementById('job-detail-bg').addEventListener('click', e => { if (e.target === e.currentTarget) closeJobModal(); });
+
+// ── Toast ────────────────────────────────────────────────────────────────────
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+// ── Utils ────────────────────────────────────────────────────────────────────
+function escHtml(str) {
+  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escAttr(str) {
+  return String(str||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+}
+document.getElementById('modal-bg').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
+
+// ── Sidebar collapse ─────────────────────────────────────────────────────────
+function toggleSidebar() {
+  const sb  = document.getElementById('sidebar');
+  const btn = sb.querySelector('.sidebar-toggle');
+  const collapsed = sb.classList.toggle('collapsed');
+  btn.textContent = collapsed ? '›' : '‹';
+  localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0');
+}
+(function initSidebar() {
+  if (localStorage.getItem('sidebarCollapsed') === '1') {
+    const sb  = document.getElementById('sidebar');
+    const btn = sb.querySelector('.sidebar-toggle');
+    sb.classList.add('collapsed');
+    btn.textContent = '›';
+  }
+})();
+
+// ── Notes modal ──────────────────────────────────────────────────────────────
+function openNotesModal(jobId) {
+  const j = jobById[jobId];
+  if (!j) return;
+  document.getElementById('notes-modal-job-id').value    = jobId;
+  document.getElementById('notes-modal-job-label').textContent = `${j.title} — ${j.company}`;
+  document.getElementById('notes-modal-text').value      = j.notes || '';
+  document.getElementById('notes-modal-bg').classList.add('open');
+  setTimeout(() => document.getElementById('notes-modal-text').focus(), 50);
+}
+function closeNotesModal() { document.getElementById('notes-modal-bg').classList.remove('open'); }
+async function submitNotesUpdate() {
+  const btn   = document.getElementById('notes-modal-save-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const jobId = document.getElementById('notes-modal-job-id').value;
+    const notes = document.getElementById('notes-modal-text').value;
+    const j     = jobById[jobId];
+    await updateStatus(jobId, j.status, notes);
+    j.notes = notes;  // update local cache
+    closeNotesModal();
+    toast('Notes saved ✓');
+    loadPage(currentPage);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save';
+  }
+}
+document.getElementById('notes-modal-bg').addEventListener('click', e => { if (e.target === e.currentTarget) closeNotesModal(); });
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+Promise.all([loadLatestRun(), loadStats()]).then(() => loadAll()).finally(() => {
+  document.getElementById('page-loader').classList.add('hidden');
+});
 </script>
 </body>
 </html>

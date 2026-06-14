@@ -175,6 +175,8 @@ target_companies:
     linkedin_id: 1307
   - name: Cisco
     linkedin_id: 1063
+  - name: OpenAI
+    linkedin_id: 35625733
 
 # Bot behaviour
 settings:

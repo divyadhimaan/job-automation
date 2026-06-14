@@ -12,13 +12,16 @@ from flask import Flask, render_template, jsonify, request, redirect, url_for
 from flask_cors import CORS
 
 from bot.database import (
-    init_db, get_jobs, get_stats, update_job_status, get_job,
+    init_db, get_jobs, get_stats, update_job_status, get_job, get_latest_run,
 )
 
 app = Flask(__name__)
 CORS(app)
 
-VALID_STATUSES = ["discovered", "applied", "needs_manual", "manually_applied", "skipped", "failed"]
+VALID_STATUSES = [
+    "discovered", "applied", "needs_manual", "manually_applied",
+    "interviewing", "offer", "rejected", "skipped", "failed",
+]
 
 
 @app.before_request
@@ -60,6 +63,12 @@ def api_job(job_id):
     if not job:
         return jsonify({"error": "Not found"}), 404
     return jsonify(job)
+
+
+@app.route("/api/runs/latest")
+def api_latest_run():
+    run = get_latest_run()
+    return jsonify(run or {})
 
 
 @app.route("/api/jobs/<job_id>/status", methods=["POST"])
